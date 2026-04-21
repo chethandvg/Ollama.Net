@@ -27,6 +27,8 @@ dotnet add package Ollama.Net
 ### 1. Register with dependency injection
 
 ```csharp
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Ollama.Net.DependencyInjection;
 
 var builder = Host.CreateApplicationBuilder(args);
@@ -37,11 +39,14 @@ builder.Services.AddOllamaClient(options =>
     options.DefaultModel = "llama3.2";
     options.Timeout      = TimeSpan.FromSeconds(120);
 });
+
+var host = builder.Build();
 ```
 
 ### 2. Generate text
 
 ```csharp
+using Microsoft.Extensions.DependencyInjection;
 using Ollama.Net.Abstractions;
 using Ollama.Net.Models.Requests;
 

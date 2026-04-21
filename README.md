@@ -56,6 +56,8 @@ ollama pull llama3.2      # terminal 2
 ### 1 · Register the client
 
 ```csharp
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Ollama.Net.DependencyInjection;
 
 var builder = Host.CreateApplicationBuilder(args);
@@ -73,6 +75,7 @@ var host = builder.Build();
 ### 2 · Generate text
 
 ```csharp
+using Microsoft.Extensions.DependencyInjection;
 using Ollama.Net.Abstractions;
 using Ollama.Net.Models.Requests;
 
@@ -264,8 +267,9 @@ Ollama.Net/
 ├── tests/Ollama.Net.Tests/        # xUnit + FluentAssertions + WireMock.Net
 ├── samples/Ollama.Net.Samples/    # 5 runnable samples
 ├── docs/
-│   ├── VERSIONING.md              # MinVer guide, beginner-friendly
-│   └── PRE-PUBLISH-CHECKLIST.md   # One-off steps before 1.0.0
+│   ├── PUBLISHING-AND-MAINTENANCE.md  # End-to-end publish + maintain playbook
+│   ├── VERSIONING.md                  # MinVer guide, beginner-friendly
+│   └── PRE-PUBLISH-CHECKLIST.md       # One-off steps before 1.0.0
 ├── .github/workflows/             # CI + release pipelines
 ├── Directory.Build.props          # Repo-wide MSBuild defaults
 ├── Directory.Packages.props       # Central package versions
@@ -285,10 +289,13 @@ All three must succeed with **0 warnings and 0 errors** before you open a PR.
 
 ## 📚 Documentation
 
+- [`docs/PUBLISHING-AND-MAINTENANCE.md`](docs/PUBLISHING-AND-MAINTENANCE.md) —
+  **start here if you're about to publish**: the full step-by-step playbook
+  for testing, releasing `v1.0.0`, and maintaining the package long-term.
 - [`docs/VERSIONING.md`](docs/VERSIONING.md) — beginner-friendly guide to
   releasing with **MinVer**.
-- [`docs/PRE-PUBLISH-CHECKLIST.md`](docs/PRE-PUBLISH-CHECKLIST.md) — what to
-  do before pushing the first `v1.0.0` tag.
+- [`docs/PRE-PUBLISH-CHECKLIST.md`](docs/PRE-PUBLISH-CHECKLIST.md) — one-off
+  checklist of GitHub/NuGet settings to tick before the first tag.
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) · [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md) · [`SECURITY.md`](SECURITY.md)
 - [`CHANGELOG.md`](CHANGELOG.md)
 - [`OLLAMA-NUGET-PUBLISHING.md`](OLLAMA-NUGET-PUBLISHING.md) — the original

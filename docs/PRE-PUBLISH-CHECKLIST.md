@@ -105,9 +105,9 @@ Open `src/Ollama.Net/Ollama.Net.csproj` and double-check:
 
 ## 6 · Repo hygiene
 
-- [ ] `grep -rn "Krutaka" . ':!OLLAMA-NUGET-PUBLISHING.md'` returns **nothing**.
-      (The migration guide intentionally still mentions the old name for
-      historical reference.)
+- [ ] `grep -rn "Krutaka" . --exclude="OLLAMA-NUGET-PUBLISHING.md" --exclude="CHANGELOG.md" --exclude="PRE-PUBLISH-CHECKLIST.md"`
+      returns **nothing**. (Those three files intentionally mention the old
+      name for historical reference; investigate any other match.)
 - [ ] No `bin/`, `obj/`, `packages.lock.json`, `.vs/`, or `.user` files
       committed.
 - [ ] `.gitignore` — verify it already ignores the standard .NET artefacts
