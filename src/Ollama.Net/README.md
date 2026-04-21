@@ -1,123 +1,89 @@
-# Ollama.Net
+# 🦙 Ollama.Net
 
-Modern, async, AOT-friendly .NET client for the [Ollama](https://ollama.ai/) REST API. Supports text generation, chat, embeddings, model management, streaming responses, and tool calling.
-
-## Features
-
-- ✅ **Fully async/await** with `ConfigureAwait(false)` throughout
-- ✅ **AOT and trimming compatible** using System.Text.Json source generators
-- ✅ **Streaming support** for generation, chat, and model operations
-- ✅ **Tool calling** with structured function definitions
-- ✅ **Embeddings** with batch support
-- ✅ **Model management** (pull, push, create, delete, copy, list, show)
-- ✅ **System operations** (version, ping, blob management)
-- ✅ **Comprehensive error handling** with 15+ exception types
-- ✅ **Observability** with OpenTelemetry metrics and tracing
-- ✅ **Named clients** via `IOllamaClientFactory` for multi-server scenarios
-- ✅ **Resilience** with automatic retries via `Microsoft.Extensions.Http.Resilience`
-
-## Installation
+Modern, async, AOT-friendly .NET client for the [Ollama](https://ollama.com) REST API —
+supports text generation, chat, embeddings, streaming, tool calling, and full
+model management. Targets **.NET 8 / 9 / 10**.
 
 ```bash
 dotnet add package Ollama.Net
 ```
 
+## Features
+
+- ✅ **Idiomatic .NET** — `IHttpClientFactory`, `IOptions<T>`, `ILogger<T>`, `CancellationToken`
+- ✅ **AOT + trim friendly** — `System.Text.Json` source generators only
+- ✅ **First-class streaming** via `IAsyncEnumerable<T>`
+- ✅ **Tool calling** with strongly-typed records
+- ✅ **Embeddings** with batch support
+- ✅ **Full model management** (list, show, pull, push, create, delete, copy, ps, blobs)
+- ✅ **Ollama Cloud** support with correct `402`/`429` handling
+- ✅ **15+ typed exceptions** for narrow `catch` blocks
+- ✅ **OpenTelemetry** `ActivitySource` + `Meter` (named `Ollama.Net`)
+- ✅ **Automatic retries** via `Microsoft.Extensions.Http.Resilience`
+- ✅ **Secure by default** — HTTPS enforced for non-loopback; no cookies
+
 ## Quick Start
 
-### Register with Dependency Injection
+### 1. Register with dependency injection
 
 ```csharp
 using Ollama.Net.DependencyInjection;
 
-var builder = Host.CreateDefaultBuilder(args);
+var builder = Host.CreateApplicationBuilder(args);
 
-builder.ConfigureServices(services =>
+builder.Services.AddOllamaClient(options =>
 {
-    services.AddOllamaClient(options =>
-    {
-        options.BaseAddress = new Uri("http://localhost:11434/");
-        options.DefaultModel = "llama3.2";
-        options.Timeout = TimeSpan.FromSeconds(120);
-    });
+    options.BaseAddress  = new Uri("http://localhost:11434/");
+    options.DefaultModel = "llama3.2";
+    options.Timeout      = TimeSpan.FromSeconds(120);
 });
-
-var host = builder.Build();
 ```
 
-### Generate Text
+### 2. Generate text
 
 ```csharp
 using Ollama.Net.Abstractions;
 using Ollama.Net.Models.Requests;
 
-IOllamaClient client = host.Services.GetRequiredService<IOllamaClient>();
+var client = host.Services.GetRequiredService<IOllamaClient>();
 
-var request = new GenerateRequest(
-    Model: "llama3.2",
-    Prompt: "Why is the sky blue?"
-);
+var response = await client.Generation.GenerateAsync(
+    new GenerateRequest(Model: "llama3.2", Prompt: "Why is the sky blue?"));
 
-GenerateResponse response = await client.Generation.GenerateAsync(request);
 Console.WriteLine(response.Response);
 ```
 
-### Streaming Chat
+### 3. Stream a chat
 
 ```csharp
 using Ollama.Net.Models.Common;
 
-var chatRequest = new ChatRequest(
+var request = new ChatRequest(
     Model: "llama3.2",
-    Messages:
-    [
-        new OllamaMessage(OllamaRole.User, "Tell me a joke about programming")
-    ]
-);
+    Messages: [ new OllamaMessage(OllamaRole.User, "Tell me a joke about C#.") ]);
 
-await foreach (ChatResponse chunk in client.Generation.ChatStreamAsync(chatRequest))
-{
+await foreach (var chunk in client.Generation.ChatStreamAsync(request))
     Console.Write(chunk.Message.Content);
-}
 ```
 
-### Generate Embeddings
+### 4. Generate embeddings
 
 ```csharp
-var embedRequest = new EmbedRequest(
-    Model: "nomic-embed-text",
-    Input: ["The quick brown fox", "jumps over the lazy dog"]
-);
-
-EmbedResponse embeddings = await client.Embeddings.EmbedAsync(embedRequest);
-
-foreach (float[] embedding in embeddings.Embeddings)
-{
-    Console.WriteLine($"Embedding dimension: {embedding.Length}");
-}
+var result = await client.Embeddings.EmbedAsync(
+    new EmbedRequest(Model: "nomic-embed-text",
+                     Input: ["The quick brown fox", "jumps over the lazy dog"]));
 ```
 
-### Model Management
+### 5. Model management
 
 ```csharp
-// List all models
-ModelList models = await client.Models.ListModelsAsync();
+await foreach (var p in client.Models.PullModelStreamAsync(new PullModelRequest("llama3.2")))
+    Console.WriteLine($"{p.Status}: {p.Completed}/{p.Total}");
 
-// Pull a model with progress
-await foreach (ProgressResponse progress in client.Models.PullModelStreamAsync(
-    new PullModelRequest("llama3.2")))
-{
-    Console.WriteLine($"{progress.Status}: {progress.Completed}/{progress.Total}");
-}
-
-// Show model details
-ShowModelResponse details = await client.Models.ShowModelAsync(
-    new ShowModelRequest("llama3.2"));
-
-// Delete a model
-await client.Models.DeleteModelAsync(new DeleteModelRequest("old-model"));
+var models = await client.Models.ListModelsAsync();
 ```
 
-## Configuration Options
+## Configuration options
 
 | Property | Default | Description |
 |----------|---------|-------------|
@@ -127,58 +93,42 @@ await client.Models.DeleteModelAsync(new DeleteModelRequest("old-model"));
 | `MaxRetries` | `2` | Max retry attempts (0-10) |
 | `KeepAlive` | `5min` | How long to keep models in memory |
 | `UserAgent` | `"Ollama.Net"` | User-Agent header |
-| `AuthorizationHeader` | `null` | Raw `Authorization` header value (e.g., `"Bearer token"`). Takes precedence over `ApiKey`. |
-| `ApiKey` | `null` | Shorthand for bearer-token auth. When set, the client sends `Authorization: Bearer {ApiKey}`. Use this for [Ollama Cloud](https://ollama.com/cloud). |
-| `AllowInsecureHttp` | `false` | Allow HTTP to non-loopback (HTTPS recommended) |
+| `AuthorizationHeader` | `null` | Raw `Authorization` header; takes precedence over `ApiKey` |
+| `ApiKey` | `null` | Shortcut for `Authorization: Bearer {ApiKey}` — use for Ollama Cloud |
+| `AllowInsecureHttp` | `false` | Allow HTTP to non-loopback |
 
-### Configuration from appsettings.json
+### From `appsettings.json`
 
 ```json
 {
   "Ollama": {
-    "BaseAddress": "http://localhost:11434/",
+    "BaseAddress":  "http://localhost:11434/",
     "DefaultModel": "llama3.2",
-    "Timeout": "00:02:00"
+    "Timeout":      "00:02:00"
   }
 }
 ```
 
 ```csharp
-services.AddOllamaClient(
-    builder.Configuration.GetSection("Ollama"));
+builder.Services.AddOllamaClient(builder.Configuration.GetSection("Ollama"));
 ```
 
 ### Ollama Cloud
 
-To talk to [Ollama Cloud](https://ollama.com/cloud), point the client at `https://ollama.com/` and supply a bearer token from <https://ollama.com/settings>. A shortcut is available:
-
 ```csharp
-// Preferred: read the key from configuration or a secrets store, not source code.
-services.AddOllamaCloudClient(apiKey: builder.Configuration["Ollama:ApiKey"]!);
+// Prefer reading the key from configuration / secret store, not source code.
+builder.Services.AddOllamaCloudClient(apiKey: builder.Configuration["Ollama:ApiKey"]!);
 ```
 
-Or via `appsettings.json`:
+Cloud error handling differs in two places:
 
-```json
-{
-  "Ollama": {
-    "BaseAddress": "https://ollama.com/",
-    "ApiKey": "sk-...",
-    "DefaultModel": "gpt-oss:120b-cloud"
-  }
-}
-```
+- **429** → `OllamaRateLimitedException` (used for both per-second limits **and** hourly/daily quota caps). Inspect `RetryAfter`.
+- **402** → `OllamaQuotaExceededException` (subscription exhausted — retrying will not help).
 
-Error handling for cloud differs in two places:
+## Error handling
 
-- **429 Too Many Requests** (`OllamaRateLimitedException`) is used for both transient per-second rate limits *and* hourly/daily quota caps. Inspect `Message` / `RetryAfter` to decide whether to back off and retry or surface to the user.
-- **402 Payment Required** (`OllamaQuotaExceededException`) indicates the subscription plan is exhausted. Retrying will not help — the user must upgrade their plan or wait for the next billing period.
-
-See [`samples/Ollama.Net.Samples/appsettings.Cloud.json`](../../samples/Ollama.Net.Samples/appsettings.Cloud.json) for a runnable cloud profile; activate it with `DOTNET_ENVIRONMENT=Cloud`.
-
-## Error Handling
-
-The library throws typed exceptions for different error scenarios:
+The library throws narrow typed exceptions so you can `catch` the exact
+scenario you care about:
 
 | Exception | When |
 |-----------|------|
@@ -190,82 +140,47 @@ The library throws typed exceptions for different error scenarios:
 | `OllamaModelNotFoundException` | Model not found (404) |
 | `OllamaModelPullRequiredException` | Model needs to be pulled first |
 | `OllamaRequestValidationException` | Invalid request (400) |
-| `OllamaPayloadTooLargeException` | Request/context too large (413 or 500 context) |
-| `OllamaRateLimitedException` | Rate limited (429) — Ollama Cloud uses this for both per-second limits and hourly/daily quota |
-| `OllamaQuotaExceededException` | Cloud subscription quota exceeded (402 Payment Required) |
+| `OllamaPayloadTooLargeException` | Request/context too large |
+| `OllamaRateLimitedException` | Rate limited (429) — also hourly/daily cloud quotas |
+| `OllamaQuotaExceededException` | Cloud subscription quota exceeded (402) |
 | `OllamaServerException` | Server error (500) — check `IsOutOfMemory` / `IsDiskFull` |
-| `OllamaServiceUnavailableException` | Service unavailable (503) |
-| `OllamaStreamException` | Streaming error — check `IsTruncated`; also thrown when a model operation (pull/push/create) returns zero progress records |
+| `OllamaServiceUnavailableException` | 503 Service Unavailable |
+| `OllamaStreamException` | Streaming failure — check `IsTruncated` |
 | `OllamaDeserializationException` | JSON parsing failed |
 | `OllamaApiException` | Generic API error with status code |
 
-### Example
-
-```csharp
-try
-{
-    var response = await client.Generation.GenerateAsync(request);
-}
-catch (OllamaModelNotFoundException ex)
-{
-    Console.WriteLine($"Model '{ex.ModelName}' not found. Pull it first.");
-}
-catch (OllamaTimeoutException ex)
-{
-    Console.WriteLine($"Request timed out: {ex.Message}");
-}
-catch (OllamaServerException ex) when (ex.IsOutOfMemory)
-{
-    Console.WriteLine("Server ran out of memory. Try a smaller model.");
-}
-```
-
-## Cancellation & Timeouts
+## Cancellation & timeouts
 
 All async methods accept a `CancellationToken`:
 
 ```csharp
 using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-
 var response = await client.Generation.GenerateAsync(request, cts.Token);
 ```
 
-- **Non-streaming requests** enforce `OllamaClientOptions.Timeout` automatically.
-- **Streaming requests** respect the user-provided `CancellationToken` only.
+- **Non-streaming** requests enforce `OllamaClientOptions.Timeout` automatically.
+- **Streaming** requests respect the caller's `CancellationToken` only.
 
 ## Observability
 
-The library emits OpenTelemetry metrics and traces:
+- **ActivitySource:** `Ollama.Net`
+- **Meter:** `Ollama.Net`
+- Metrics: `ollama.requests.total`, `ollama.requests.failed`, `ollama.request.duration` (histogram), `ollama.tokens.generated`.
+- Activity tags: `ollama.endpoint`, `ollama.model`, `ollama.stream`, `ollama.status_code`, `ollama.duration_ms`.
 
-- **ActivitySource**: `Ollama.Net` (version `1.0.0`)
-- **Meter**: `Ollama.Net` (version `1.0.0`)
+## Security notes
 
-### Metrics
+- **HTTPS by default** — HTTP to non-loopback is rejected unless `AllowInsecureHttp = true`.
+- **No credential storage** — keys are never persisted by the client.
+- **No cookies** — the underlying `HttpClient` disables them to prevent session reuse.
 
-- `ollama.requests.total` — Total requests sent
-- `ollama.requests.failed` — Failed requests
-- `ollama.request.duration` (histogram) — Request duration in ms
-- `ollama.tokens.generated` — Total tokens generated
+## Links
 
-### Tracing
-
-Activities are tagged with:
-- `ollama.endpoint` — API path
-- `ollama.model` — Model name (if known)
-- `ollama.stream` — Whether streaming
-- `ollama.status_code` — HTTP status code
-- `ollama.duration_ms` — Duration
-
-## Security Notes
-
-- **HTTPS by default**: HTTP connections to non-loopback addresses are rejected unless `AllowInsecureHttp = true`.
-- **No credential storage**: The client never stores API keys or credentials; use `AuthorizationHeader` for custom auth.
-- **No cookies**: The HTTP client disables cookies to prevent unintended session reuse.
+- 📖 [Full README, samples & docs](https://github.com/chethandvg/Ollama.Net)
+- 📝 [CHANGELOG](https://github.com/chethandvg/Ollama.Net/blob/main/CHANGELOG.md)
+- 🤝 [CONTRIBUTING](https://github.com/chethandvg/Ollama.Net/blob/main/CONTRIBUTING.md)
+- 🛡️ [SECURITY](https://github.com/chethandvg/Ollama.Net/blob/main/SECURITY.md)
 
 ## License
 
-MIT — see [LICENSE](https://github.com/chethandvg/Ollama.Net/blob/main/LICENSE) for details.
-
-## Contributing
-
-Contributions welcome! See [CONTRIBUTING.md](https://github.com/chethandvg/Ollama.Net/blob/main/CONTRIBUTING.md).
+MIT © Chethan — see [LICENSE](https://github.com/chethandvg/Ollama.Net/blob/main/LICENSE).
