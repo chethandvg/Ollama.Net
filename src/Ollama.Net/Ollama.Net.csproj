@@ -1,0 +1,73 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!--
+      Multi-target for maximum reach. .NET 10 for latest consumers;
+      .NET 8 / 9 for LTS and long-tail users.
+    -->
+    <TargetFrameworks>net8.0;net9.0;net10.0</TargetFrameworks>
+    <RootNamespace>Ollama.Net</RootNamespace>
+    <AssemblyName>Ollama.Net</AssemblyName>
+
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+
+    <!-- Packaging -->
+    <IsPackable>true</IsPackable>
+    <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <ContinuousIntegrationBuild Condition="'$(GITHUB_ACTIONS)' == 'true'">true</ContinuousIntegrationBuild>
+    <Deterministic>true</Deterministic>
+
+    <!-- Package identity and metadata -->
+    <PackageId>Ollama.Net</PackageId>
+    <Title>Ollama.Net</Title>
+    <Authors>Chethan</Authors>
+    <Copyright>© Chethan $([System.DateTime]::UtcNow.Year)</Copyright>
+    <Description>Modern, async, AOT-friendly .NET client for the Ollama REST API. Supports text generation, chat, embeddings, streaming responses, tool calling, and full model management.</Description>
+    <PackageTags>ollama;ai;llm;client;rest;http;streaming;chat;embeddings;tool-calling;aot</PackageTags>
+    <PackageProjectUrl>https://github.com/chethandvg/Ollama.Net</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/chethandvg/Ollama.Net</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
+
+    <!-- AOT / trimming -->
+    <IsTrimmable>true</IsTrimmable>
+    <IsAotCompatible>true</IsAotCompatible>
+
+    <!-- API compat / package validation. Disabled until 1.0.0 is published;
+         enable and set the baseline version after the first stable release. -->
+    <EnablePackageValidation>false</EnablePackageValidation>
+    <!-- <PackageValidationBaselineVersion>1.0.0</PackageValidationBaselineVersion> -->
+
+    <!-- MinVer: compute version from git tags. See docs/VERSIONING.md. -->
+    <MinVerTagPrefix>v</MinVerTagPrefix>
+    <MinVerDefaultPreReleaseIdentifiers>preview.0</MinVerDefaultPreReleaseIdentifiers>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" />
+    <None Include="CHANGELOG.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Configuration.Binder" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Http" />
+    <PackageReference Include="Microsoft.Extensions.Http.Resilience" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Options" />
+
+    <PackageReference Include="MinVer" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.SourceLink.GitHub" PrivateAssets="all" />
+  </ItemGroup>
+
+</Project>

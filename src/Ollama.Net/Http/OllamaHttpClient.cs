@@ -1,0 +1,514 @@
+using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
+using System.Net.Http.Headers;
+using System.Reflection;
+using System.Runtime.CompilerServices;
+using System.Text;
+using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
+using Ollama.Net.Configuration;
+using Ollama.Net.Exceptions;
+using Ollama.Net.Internal.Diagnostics;
+using Ollama.Net.Internal.Json;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+
+namespace Ollama.Net.Http;
+
+/// <summary>
+/// Internal HTTP client that owns all Ollama REST traffic.
+/// Handles user-agent, authorization header, request/response serialization via the
+/// source-generated <see cref="OllamaJsonContext"/>, NDJSON streaming, and
+/// translation of non-success responses into typed <see cref="OllamaException"/> instances.
+/// </summary>
+internal sealed class OllamaHttpClient
+{
+    private static readonly string LibraryVersion =
+        typeof(OllamaHttpClient).Assembly.GetName().Version?.ToString(3) ?? "1.0.0";
+
+    private readonly HttpClient _httpClient;
+    private readonly OllamaClientOptions _options;
+    private readonly ILogger<OllamaHttpClient> _logger;
+
+    public OllamaHttpClient(
+        HttpClient httpClient,
+        IOptions<OllamaClientOptions> options,
+        ILogger<OllamaHttpClient> logger)
+    {
+        ArgumentNullException.ThrowIfNull(httpClient);
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(logger);
+
+        _httpClient = httpClient;
+        _options = options.Value;
+        _logger = logger;
+
+        if (_httpClient.BaseAddress is null && _options.BaseAddress is not null)
+        {
+            _httpClient.BaseAddress = _options.BaseAddress;
+        }
+
+        _httpClient.Timeout = Timeout.InfiniteTimeSpan;
+    }
+
+    /// <summary>Exposed for testing; the effective base address.</summary>
+    internal Uri? BaseAddress => _httpClient.BaseAddress ?? _options.BaseAddress;
+
+    /// <summary>
+    /// Sends a request with an optional JSON body and deserializes the JSON response.
+    /// </summary>
+    public async Task<TResponse> SendJsonAsync<TRequest, TResponse>(
+        HttpMethod method,
+        string path,
+        TRequest? body,
+        JsonTypeInfo<TResponse> responseTypeInfo,
+        JsonTypeInfo<TRequest>? requestTypeInfo,
+        CancellationToken cancellationToken)
+        where TRequest : class
+        where TResponse : class
+    {
+        ArgumentNullException.ThrowIfNull(responseTypeInfo);
+
+        using Activity? activity = StartActivity(method, path, streaming: false);
+        Stopwatch stopwatch = Stopwatch.StartNew();
+
+        using HttpRequestMessage request = CreateRequest(method, path, body, requestTypeInfo, isStreaming: false);
+
+        using CancellationTokenSource timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeoutCts.CancelAfter(_options.Timeout);
+        CancellationToken effectiveCt = timeoutCts.Token;
+
+        HttpResponseMessage response;
+        try
+        {
+            OllamaLog.SendingRequest(_logger, method.Method, path);
+            OllamaMetrics.RequestsTotal.Add(1, new KeyValuePair<string, object?>("endpoint", path));
+
+            response = await _httpClient
+                .SendAsync(request, HttpCompletionOption.ResponseContentRead, effectiveCt)
+                .ConfigureAwait(false);
+        }
+        catch (HttpRequestException httpEx)
+        {
+            OllamaLog.ConnectionError(_logger, httpEx, path);
+            OllamaMetrics.RequestsFailed.Add(1, new KeyValuePair<string, object?>("endpoint", path));
+            throw new OllamaConnectionException(
+                $"Could not connect to Ollama at '{BaseAddress}'. Is the Ollama server running? ({httpEx.Message})",
+                httpEx)
+            {
+                Endpoint = path
+            };
+        }
+        catch (OperationCanceledException) when (
+            timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+        {
+            OllamaMetrics.RequestsFailed.Add(1, new KeyValuePair<string, object?>("endpoint", path));
+            throw new OllamaTimeoutException(
+                $"The Ollama request to '{path}' timed out after {_options.Timeout}. " +
+                "Increase OllamaClientOptions.Timeout for large prompts or use the streaming API.",
+                new TimeoutException())
+            {
+                Endpoint = path
+            };
+        }
+
+        try
+        {
+            stopwatch.Stop();
+            double durationMs = stopwatch.Elapsed.TotalMilliseconds;
+            activity?.SetTag("ollama.status_code", (int)response.StatusCode);
+            activity?.SetTag("ollama.duration_ms", durationMs);
+            OllamaMetrics.RequestDuration.Record(durationMs, new KeyValuePair<string, object?>("endpoint", path));
+            OllamaLog.ReceivedResponse(_logger, path, (int)response.StatusCode, durationMs);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                string? rawBody = await ReadBodySafelyAsync(response, cancellationToken).ConfigureAwait(false);
+                OllamaLog.RequestFailed(_logger, path, (int)response.StatusCode, rawBody ?? "(no body)");
+                OllamaMetrics.RequestsFailed.Add(1, new KeyValuePair<string, object?>("endpoint", path));
+                throw OllamaErrorTranslator.Translate(response, path, rawBody);
+            }
+
+            ValidateContentType(response, path, expectNdjson: false);
+
+            string responseBody = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+
+            CheckForEmbeddedError(responseBody, path);
+
+            TResponse? result;
+            try
+            {
+                result = JsonSerializer.Deserialize(responseBody, responseTypeInfo);
+            }
+            catch (JsonException jsonEx)
+            {
+                OllamaLog.DeserializationError(_logger, jsonEx, path);
+                throw new OllamaDeserializationException(
+                    $"Failed to deserialize response from '{path}'. Raw body length: {responseBody.Length}.",
+                    jsonEx)
+                {
+                    Endpoint = path,
+                    RawContent = responseBody
+                };
+            }
+
+            if (result is null)
+            {
+                throw new OllamaDeserializationException(
+                    $"Ollama response from '{path}' deserialized to null.",
+                    new JsonException("Null deserialization result"))
+                {
+                    Endpoint = path,
+                    RawContent = responseBody
+                };
+            }
+
+            return result;
+        }
+        finally
+        {
+            response.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// Sends a request that returns no response body (e.g., delete, copy).
+    /// </summary>
+    public async Task SendJsonVoidAsync<TRequest>(
+        HttpMethod method,
+        string path,
+        TRequest? body,
+        JsonTypeInfo<TRequest>? requestTypeInfo,
+        CancellationToken cancellationToken)
+        where TRequest : class
+    {
+        using HttpRequestMessage request = CreateRequest(method, path, body, requestTypeInfo, isStreaming: false);
+        using CancellationTokenSource timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeoutCts.CancelAfter(_options.Timeout);
+
+        HttpResponseMessage response;
+        try
+        {
+            OllamaLog.SendingRequest(_logger, method.Method, path);
+            OllamaMetrics.RequestsTotal.Add(1, new KeyValuePair<string, object?>("endpoint", path));
+            response = await _httpClient.SendAsync(request, timeoutCts.Token).ConfigureAwait(false);
+        }
+        catch (HttpRequestException httpEx)
+        {
+            OllamaMetrics.RequestsFailed.Add(1, new KeyValuePair<string, object?>("endpoint", path));
+            throw new OllamaConnectionException(
+                $"Could not connect to Ollama at '{BaseAddress}'. Is the Ollama server running? ({httpEx.Message})",
+                httpEx)
+            { Endpoint = path };
+        }
+        catch (OperationCanceledException) when (
+            timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+        {
+            OllamaMetrics.RequestsFailed.Add(1, new KeyValuePair<string, object?>("endpoint", path));
+            throw new OllamaTimeoutException(
+                $"The Ollama request to '{path}' timed out after {_options.Timeout}.",
+                new TimeoutException())
+            { Endpoint = path };
+        }
+
+        using (response)
+        {
+            if (!response.IsSuccessStatusCode)
+            {
+                string? rawBody = await ReadBodySafelyAsync(response, cancellationToken).ConfigureAwait(false);
+                OllamaMetrics.RequestsFailed.Add(1, new KeyValuePair<string, object?>("endpoint", path));
+                throw OllamaErrorTranslator.Translate(response, path, rawBody);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Sends a request with an optional JSON body and yields NDJSON chunks as they arrive.
+    /// Retries are disabled for streaming (the <c>X-Ollama-Stream</c> header signals the resilience handler).
+    /// </summary>
+    public async IAsyncEnumerable<TResponse> SendStreamAsync<TRequest, TResponse>(
+        HttpMethod method,
+        string path,
+        TRequest? body,
+        JsonTypeInfo<TResponse> responseTypeInfo,
+        JsonTypeInfo<TRequest>? requestTypeInfo,
+        [EnumeratorCancellation] CancellationToken cancellationToken)
+        where TRequest : class
+        where TResponse : class
+    {
+        ArgumentNullException.ThrowIfNull(responseTypeInfo);
+
+        using Activity? activity = StartActivity(method, path, streaming: true);
+        OllamaMetrics.RequestsTotal.Add(1, new KeyValuePair<string, object?>("endpoint", path));
+
+        using HttpRequestMessage request = CreateRequest(method, path, body, requestTypeInfo, isStreaming: true);
+
+        HttpResponseMessage response;
+        try
+        {
+            OllamaLog.SendingRequest(_logger, method.Method, path);
+            response = await _httpClient
+                .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (HttpRequestException httpEx)
+        {
+            OllamaLog.ConnectionError(_logger, httpEx, path);
+            OllamaMetrics.RequestsFailed.Add(1, new KeyValuePair<string, object?>("endpoint", path));
+            throw new OllamaConnectionException(
+                $"Could not connect to Ollama at '{BaseAddress}'. Is the Ollama server running? ({httpEx.Message})",
+                httpEx)
+            { Endpoint = path };
+        }
+
+        activity?.SetTag("ollama.status_code", (int)response.StatusCode);
+
+        try
+        {
+            if (!response.IsSuccessStatusCode)
+            {
+                string? rawBody = await ReadBodySafelyAsync(response, cancellationToken).ConfigureAwait(false);
+                OllamaLog.RequestFailed(_logger, path, (int)response.StatusCode, rawBody ?? "(no body)");
+                OllamaMetrics.RequestsFailed.Add(1, new KeyValuePair<string, object?>("endpoint", path));
+                throw OllamaErrorTranslator.Translate(response, path, rawBody);
+            }
+
+            ValidateContentType(response, path, expectNdjson: true);
+
+            Stream responseStream = await response.Content
+                .ReadAsStreamAsync(cancellationToken)
+                .ConfigureAwait(false);
+
+            await foreach (TResponse chunk in OllamaStreamReader.ReadNdjsonAsync(
+                responseStream, responseTypeInfo, path, _logger, cancellationToken).ConfigureAwait(false))
+            {
+                yield return chunk;
+            }
+        }
+        finally
+        {
+            response.Dispose();
+        }
+    }
+
+    /// <summary>Sends an HTTP HEAD request and returns whether the response was a success (2xx).</summary>
+    public async Task<bool> HeadAsync(string path, CancellationToken cancellationToken)
+    {
+        using HttpRequestMessage request = CreateRequest<object>(HttpMethod.Head, path, body: null, requestTypeInfo: null, isStreaming: false);
+        using CancellationTokenSource timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeoutCts.CancelAfter(_options.Timeout);
+
+        try
+        {
+            OllamaLog.SendingRequest(_logger, request.Method.Method, path);
+            using HttpResponseMessage response = await _httpClient
+                .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeoutCts.Token)
+                .ConfigureAwait(false);
+            return response.IsSuccessStatusCode;
+        }
+        catch (HttpRequestException httpEx)
+        {
+            throw new OllamaConnectionException(
+                $"Could not connect to Ollama at '{BaseAddress}'. Is the Ollama server running? ({httpEx.Message})",
+                httpEx)
+            { Endpoint = path };
+        }
+        catch (OperationCanceledException) when (
+            timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+        {
+            throw new OllamaTimeoutException(
+                $"The Ollama HEAD request to '{path}' timed out after {_options.Timeout}.",
+                new TimeoutException())
+            { Endpoint = path };
+        }
+    }
+
+    /// <summary>Sends a request with a raw binary stream body (used for blob uploads).</summary>
+    public async Task SendStreamBodyAsync(
+        HttpMethod method,
+        string path,
+        Stream content,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(content);
+
+        using HttpRequestMessage request = CreateRequestCore(method, path, isStreaming: false);
+        request.Content = new StreamContent(content);
+        request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+
+        using CancellationTokenSource timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeoutCts.CancelAfter(_options.Timeout);
+
+        HttpResponseMessage response;
+        try
+        {
+            OllamaLog.SendingRequest(_logger, method.Method, path);
+            response = await _httpClient.SendAsync(request, timeoutCts.Token).ConfigureAwait(false);
+        }
+        catch (HttpRequestException httpEx)
+        {
+            throw new OllamaConnectionException(
+                $"Could not connect to Ollama at '{BaseAddress}'. Is the Ollama server running? ({httpEx.Message})",
+                httpEx)
+            { Endpoint = path };
+        }
+        catch (OperationCanceledException) when (
+            timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+        {
+            throw new OllamaTimeoutException(
+                $"The Ollama request to '{path}' timed out after {_options.Timeout}.",
+                new TimeoutException())
+            { Endpoint = path };
+        }
+
+        using (response)
+        {
+            if (!response.IsSuccessStatusCode)
+            {
+                string? rawBody = await ReadBodySafelyAsync(response, cancellationToken).ConfigureAwait(false);
+                throw OllamaErrorTranslator.Translate(response, path, rawBody);
+            }
+        }
+    }
+
+    private HttpRequestMessage CreateRequest<TRequest>(
+        HttpMethod method,
+        string path,
+        TRequest? body,
+        JsonTypeInfo<TRequest>? requestTypeInfo,
+        bool isStreaming)
+        where TRequest : class
+    {
+        HttpRequestMessage request = CreateRequestCore(method, path, isStreaming);
+
+        if (body is not null && requestTypeInfo is not null)
+        {
+            string json = JsonSerializer.Serialize(body, requestTypeInfo);
+            OllamaLog.RequestBody(_logger, json.Length);
+            request.Content = new StringContent(json, Encoding.UTF8, "application/json");
+        }
+
+        return request;
+    }
+
+    private HttpRequestMessage CreateRequestCore(HttpMethod method, string path, bool isStreaming)
+    {
+        HttpRequestMessage request = new(method, path);
+
+        request.Headers.UserAgent.ParseAdd($"{_options.UserAgent}/{LibraryVersion}");
+
+        if (!string.IsNullOrWhiteSpace(_options.AuthorizationHeader))
+        {
+            request.Headers.TryAddWithoutValidation("Authorization", _options.AuthorizationHeader);
+        }
+        else if (!string.IsNullOrWhiteSpace(_options.ApiKey))
+        {
+            request.Headers.TryAddWithoutValidation("Authorization", $"Bearer {_options.ApiKey}");
+        }
+
+        if (isStreaming)
+        {
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/x-ndjson"));
+            request.Headers.TryAddWithoutValidation(OllamaRequestHeaders.Stream, "true");
+        }
+        else
+        {
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+        }
+
+        return request;
+    }
+
+    private static Activity? StartActivity(HttpMethod method, string path, bool streaming)
+    {
+        Activity? activity = OllamaActivitySource.Instance.StartActivity($"{method.Method} {path}");
+        activity?.SetTag("ollama.endpoint", path);
+        activity?.SetTag("ollama.stream", streaming);
+        activity?.SetTag("ollama.method", method.Method);
+        return activity;
+    }
+
+    [SuppressMessage("Design", "CA1031:Do not catch general exception types",
+        Justification = "Reading the error body is best-effort; any failure is reported via the surrounding error path.")]
+    private static async Task<string?> ReadBodySafelyAsync(HttpResponseMessage response, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
+    private static void CheckForEmbeddedError(string responseBody, string path)
+    {
+        if (string.IsNullOrWhiteSpace(responseBody))
+        {
+            return;
+        }
+
+        try
+        {
+            using JsonDocument doc = JsonDocument.Parse(responseBody);
+            if (doc.RootElement.ValueKind == JsonValueKind.Object &&
+                doc.RootElement.TryGetProperty("error", out JsonElement errorElem) &&
+                errorElem.ValueKind == JsonValueKind.String)
+            {
+                string? errorMessage = errorElem.GetString();
+                if (!string.IsNullOrWhiteSpace(errorMessage))
+                {
+                    throw new OllamaApiException(
+                        $"Ollama returned an error in a successful response: {errorMessage}",
+                        System.Net.HttpStatusCode.OK)
+                    {
+                        Endpoint = path,
+                        RawServerError = responseBody
+                    };
+                }
+            }
+        }
+        catch (JsonException)
+        {
+            // Non-JSON bodies are allowed here; the caller will see a deserialization error if needed.
+        }
+    }
+
+    private static void ValidateContentType(HttpResponseMessage response, string path, bool expectNdjson)
+    {
+        MediaTypeHeaderValue? ct = response.Content.Headers.ContentType;
+        if (ct is null || string.IsNullOrEmpty(ct.MediaType))
+        {
+            // Ollama sometimes omits content-type on empty or plain responses; treat as permissive.
+            return;
+        }
+
+        string media = ct.MediaType;
+
+        bool ok = expectNdjson
+            ? (media.Equals("application/x-ndjson", StringComparison.OrdinalIgnoreCase)
+               || media.Equals("application/json", StringComparison.OrdinalIgnoreCase))
+            : media.Equals("application/json", StringComparison.OrdinalIgnoreCase);
+
+        if (!ok)
+        {
+            throw new OllamaDeserializationException(
+                $"Unexpected content-type '{media}' from '{path}'.",
+                new JsonException($"Unexpected content-type '{media}'."))
+            {
+                Endpoint = path
+            };
+        }
+    }
+}
+
+/// <summary>Names of custom HTTP request headers emitted by the client.</summary>
+internal static class OllamaRequestHeaders
+{
+    /// <summary>
+    /// Marker header set on streaming requests so the shared resilience handler can skip retries.
+    /// Retrying a partially-consumed NDJSON stream would produce corrupt output.
+    /// </summary>
+    public const string Stream = "X-Ollama-Stream";
+}
