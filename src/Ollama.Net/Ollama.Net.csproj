@@ -25,9 +25,16 @@
     <ContinuousIntegrationBuild Condition="'$(GITHUB_ACTIONS)' == 'true'">true</ContinuousIntegrationBuild>
     <Deterministic>true</Deterministic>
 
-    <!-- Package identity and metadata -->
-    <PackageId>Ollama.Net</PackageId>
-    <Title>Ollama.Net</Title>
+    <!-- Package identity and metadata.
+         NOTE: the NuGet package ID (`OllamaNet.Client`) differs from the
+         assembly name / root namespace (`Ollama.Net`). The short ID
+         `Ollama.Net` is already owned by a different publisher on
+         nuget.org (case-insensitively equal to `Ollama.NET`), so this
+         package ships under `OllamaNet.Client`. Consumers add it with
+         `dotnet add package OllamaNet.Client` but still write
+         `using Ollama.Net…` in code. -->
+    <PackageId>OllamaNet.Client</PackageId>
+    <Title>OllamaNet.Client</Title>
     <Authors>Chethan</Authors>
     <Copyright>© Chethan $([System.DateTime]::UtcNow.Year)</Copyright>
     <Description>Modern, async, AOT-friendly .NET client for the Ollama REST API. Supports text generation, chat, embeddings, streaming responses, tool calling, and full model management.</Description>

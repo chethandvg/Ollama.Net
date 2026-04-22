@@ -5,8 +5,12 @@ supports text generation, chat, embeddings, streaming, tool calling, and full
 model management. Targets **.NET 8 / 9 / 10**.
 
 ```bash
-dotnet add package Ollama.Net
+dotnet add package OllamaNet.Client
 ```
+
+> The NuGet package ID is **`OllamaNet.Client`**; the assembly and root
+> namespace are still `Ollama.Net`, so your `using` directives are
+> unchanged.
 
 ## Features
 

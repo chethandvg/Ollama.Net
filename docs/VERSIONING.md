@@ -78,7 +78,7 @@ git push origin v1.2.4
 
 The `release` workflow triggers, pack runs, the `nuget` environment asks you
 for approval, and `Ollama.Net 1.2.4` shows up at
-<https://www.nuget.org/packages/Ollama.Net> within ~5 minutes.
+<https://www.nuget.org/packages/OllamaNet.Client> within ~5 minutes.
 
 ### 4.2 Releasing a new feature (minor)
 

@@ -124,11 +124,11 @@ Before the real `v1.0.0`:
    ```
 2. Approve the `nuget` environment when GitHub asks.
 3. Confirm the package appears at
-   `https://www.nuget.org/packages/Ollama.Net/1.0.0-rc.1` within ~5 min.
+   `https://www.nuget.org/packages/OllamaNet.Client/1.0.0-rc.1` within ~5 min.
 4. In a fresh folder:
    ```bash
    dotnet new console -o probe && cd probe
-   dotnet add package Ollama.Net --version 1.0.0-rc.1
+   dotnet add package OllamaNet.Client --version 1.0.0-rc.1
    # paste the QuickStart sample from the README and run it.
    ```
 5. Everything works? Promote to `v1.0.0`:

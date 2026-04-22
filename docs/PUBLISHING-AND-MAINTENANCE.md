@@ -120,13 +120,13 @@ git fetch --tags
 dotnet pack src/Ollama.Net/Ollama.Net.csproj -c Release -o /tmp/artefacts
 ls /tmp/artefacts
 # Expect:
-#   Ollama.Net.<version>.nupkg
-#   Ollama.Net.<version>.snupkg
+#   OllamaNet.Client.<version>.nupkg
+#   OllamaNet.Client.<version>.snupkg
 ```
 
 Open the `.nupkg` in NuGet Package Explorer and verify:
 
-- [ ] **Metadata:** `PackageId = Ollama.Net`, `Authors = Chethan`,
+- [ ] **Metadata:** `PackageId = OllamaNet.Client`, `Authors = Chethan`,
       `Description` is readable, `ProjectUrl` and `RepositoryUrl` point at
       GitHub.
 - [ ] **Dependencies:** one group per target framework
@@ -167,9 +167,9 @@ git push origin v1.0.0-rc.1
 
 Give it ~5 min to index, then:
 
-- Browse to `https://www.nuget.org/packages/Ollama.Net/1.0.0-rc.1`. The
+- Browse to `https://www.nuget.org/packages/OllamaNet.Client/1.0.0-rc.1`. The
   README and metadata should all look right.
-- Check symbols: `https://www.nuget.org/packages/Ollama.Net/1.0.0-rc.1#readme-body-tab` → the *Debug symbols* column should say `Yes`.
+- Check symbols: `https://www.nuget.org/packages/OllamaNet.Client/1.0.0-rc.1#readme-body-tab` → the *Debug symbols* column should say `Yes`.
 
 ### 2.6 Smoke-test as a consumer
 
@@ -178,7 +178,7 @@ In a **fresh** folder (not this repo):
 ```bash
 dotnet new console -o probe
 cd probe
-dotnet add package Ollama.Net --version 1.0.0-rc.1 --prerelease
+dotnet add package OllamaNet.Client --version 1.0.0-rc.1 --prerelease
 ```
 
 Paste the QuickStart snippet from the root `README.md` into `Program.cs`,
@@ -241,8 +241,8 @@ Same as §2.4: Actions tab → `release` run → *Review deployments* → approv
 
 ### 3.4 Verify
 
-- [ ] `https://www.nuget.org/packages/Ollama.Net/1.0.0` is live.
-- [ ] `dotnet add package Ollama.Net` (no version) picks up `1.0.0`.
+- [ ] `https://www.nuget.org/packages/OllamaNet.Client/1.0.0` is live.
+- [ ] `dotnet add package OllamaNet.Client` (no version) picks up `1.0.0`.
 - [ ] A GitHub release titled `v1.0.0` exists with auto-generated notes.
 
 ### 3.5 Announce

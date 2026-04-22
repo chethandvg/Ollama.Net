@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- NuGet package ID set to **`OllamaNet.Client`** (assembly name and root
+  namespace remain `Ollama.Net`). The short `Ollama.Net` ID is owned by
+  another publisher on nuget.org (case-insensitively equal to `Ollama.NET`),
+  so the distribution ships under `OllamaNet.Client`. Consumers install with
+  `dotnet add package OllamaNet.Client` but code still uses
+  `using Ollama.Net…`.
 - Repository restructured for standalone NuGet publishing: the library, tests,
   and samples are now rooted at `Ollama.Net` (previously `Krutaka.Ollama`).
 - Multi-targets `net8.0`, `net9.0`, and `net10.0`.
