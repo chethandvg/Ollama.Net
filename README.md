@@ -24,6 +24,8 @@
 | 🪶 **AOT & trim friendly** | All JSON goes through `System.Text.Json` source generators. Ships `IsTrimmable=true` and `IsAotCompatible=true`. |
 | 🌊 **First-class streaming** | `IAsyncEnumerable<T>` for generate / chat / pull / push / create; cancel cleanly with a token. |
 | 🧰 **Tool calling** | Strongly-typed `FunctionDefinition` and `ToolCall` records — no stringly-typed JSON. |
+| 🧱 **Structured outputs** | `OllamaFormat` union (string `"json"` or schema object) with implicit conversions — schemas are sent inline, not stringified. |
+| 🧠 **Thinking-model support** | `Think = true` on `GenerateRequest` / `ChatRequest`; reasoning trace round-trips on `OllamaMessage.Thinking`, separate from `Content`. |
 | 📦 **Full model management** | `list`, `show`, `pull`, `push`, `create`, `delete`, `copy`, `ps`, plus blob upload. |
 | ☁️ **Ollama Cloud ready** | One-liner `AddOllamaCloudClient(apiKey: ...)` with proper `429` / `402` handling. |
 | 🛡️ **Typed errors** | 15+ exceptions (`OllamaModelNotFoundException`, `OllamaRateLimitedException`, …) so `catch` blocks stay narrow. |
@@ -119,6 +121,96 @@ var result = await client.Embeddings.EmbedAsync(
 
 foreach (var vector in result.Embeddings)
     Console.WriteLine($"dim={vector.Length}");
+```
+
+</details>
+
+<details>
+<summary><b>🧱 Structured outputs (JSON schema)</b></summary>
+
+Constrain the model's reply to a JSON schema — the schema is sent to Ollama as a
+JSON object, not a stringified blob.
+
+```csharp
+// Either just ask for "any valid JSON"...
+var jsonMode = await client.Generation.GenerateAsync(new GenerateRequest(
+    Model:  "llama3.1:8b",
+    Prompt: "Describe a cat in JSON.",
+    Format: OllamaFormat.Json));     // implicit conversion from "json"
+
+// ...or force a specific shape with a schema.
+var schema = OllamaFormat.FromSchema("""
+    {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "age":  { "type": "integer" }
+      },
+      "required": ["name", "age"]
+    }
+    """);
+
+var resp = await client.Generation.GenerateAsync(new GenerateRequest(
+    Model:  "llama3.1:8b",
+    Prompt: "Describe a cat.",
+    Format: schema));
+
+using var doc = JsonDocument.Parse(resp.Response);
+Console.WriteLine(doc.RootElement.GetProperty("name").GetString());
+```
+
+Both `GenerateRequest.Format` and `ChatRequest.Format` accept an `OllamaFormat`.
+Implicit conversions from `string` and `JsonElement` make the common cases concise.
+
+</details>
+
+<details>
+<summary><b>🧠 Thinking / reasoning models</b></summary>
+
+For models that expose a reasoning pass (`gpt-oss`, `deepseek-v3.1`, …), set `Think = true`
+and read the trace from `message.thinking` — it is kept separate from the user-facing
+`content`:
+
+```csharp
+var resp = await client.Generation.ChatAsync(new ChatRequest(
+    Model:    "gpt-oss:120b-cloud",
+    Messages: [ new OllamaMessage(OllamaRole.User, "What is 6 × 7?") ],
+    Think:    true));
+
+Console.WriteLine($"Thinking: {resp.Message.Thinking}");
+Console.WriteLine($"Answer:   {resp.Message.Content}");
+```
+
+`Think` is also honoured on streaming, where thinking chunks arrive first and content
+chunks follow.
+
+</details>
+
+<details>
+<summary><b>🎚️ Model options (all 24 knobs + forward-compat bag)</b></summary>
+
+Every Modelfile runtime option is typed; anything the server adds in the future can be
+forwarded via the `Extra` bag without waiting for a library release:
+
+```csharp
+var resp = await client.Generation.GenerateAsync(new GenerateRequest(
+    Model:  "llama3.2",
+    Prompt: "Why is the sky blue?",
+    Options: new OllamaOptions(
+        Temperature:      0.8,
+        TopP:             0.9,
+        MinP:             0.05,        // new in 2026-04
+        TypicalP:         0.7,
+        RepeatPenalty:    1.2,
+        PenalizeNewline:  true,
+        NumCtx:           8192,
+        NumGpu:           1,
+        UseMmap:          true,
+        Extra: new Dictionary<string, JsonElement>
+        {
+            // Send any future option the library does not yet know about.
+            ["some_future_knob"] = JsonDocument.Parse("42").RootElement.Clone(),
+        })));
 ```
 
 </details>

@@ -8,6 +8,8 @@
 > - <https://ollama.com/cloud> (model catalogue & pricing)
 > - <https://ollama.com/settings> (API keys)
 >
+> **Last implementation update:** 2026-04-22 — structured outputs (schema objects), thinking-model support, and the nine missing `options` knobs are now covered, plus an `Extra` escape hatch for future options.
+>
 > **Scope:** The same REST surface is exposed by local `ollama serve` and by **Ollama Cloud** (`https://ollama.com/`). Cloud adds only three things on top of the local API: (1) a different base URL, (2) bearer-token authentication, and (3) two extra HTTP status codes (`402` quota, `429` rate limit). Cloud-hosted models are addressed with a `-cloud` suffix on the model name (e.g. `gpt-oss:120b-cloud`, `qwen3-coder:480b-cloud`). Everything else — request bodies, response shapes, streaming semantics — is identical.
 >
 > This document therefore enumerates the **entire Ollama REST API** and, for each feature, marks whether `Ollama.Net` implements it today.
@@ -101,14 +103,14 @@ All endpoints listed here are the same for local and cloud deployments.
 | &nbsp;&nbsp;`.images` (base64) | optional | ✅ `Images` | |
 | &nbsp;&nbsp;`.tool_calls` | assistant messages | ✅ `ToolCalls` | Strongly typed `ToolCall` / `ToolCallFunction`. |
 | &nbsp;&nbsp;`.tool_name` (for `tool` role replies) | optional | ✅ `ToolName` | |
-| &nbsp;&nbsp;`.thinking` (thinking-capable models) | optional | ❌ | Not modelled on `OllamaMessage`. See §6.2. |
+| &nbsp;&nbsp;`.thinking` (thinking-capable models) | optional | ✅ `Thinking` | Populated on response messages when `Think = true`; preserved across streamed chunks. |
 | `tools[]` (function-calling) | optional | ✅ `Tools` | `ToolDefinition` + `FunctionDefinition` with `JsonElement Parameters` (JSON-schema). |
 | `format` = `"json"` | optional | ✅ `Format` | |
-| `format` = JSON-schema object (structured outputs) | optional | ⚠️ `Format` | Same caveat as §3: typed as `string?`. |
-| `options` | optional | ⚠️ `OllamaOptions` | See §5. |
+| `format` = JSON-schema object (structured outputs) | optional | ✅ `Format` | Same `OllamaFormat` type as on `/api/generate`. |
+| `options` | optional | ✅ `OllamaOptions` | See §5. |
 | `stream` | optional | ✅ `Stream` | Auto-set by `ChatAsync` vs `ChatStreamAsync`. |
 | `keep_alive` | optional | ✅ `KeepAlive` | |
-| `think` (top-level toggle for thinking models) | optional | ❌ | See §6.2. |
+| `think` (top-level toggle for thinking models) | optional | ✅ `Think` | Bool on `ChatRequest`. |
 
 ---
 
@@ -133,18 +135,18 @@ These are the parameters Ollama accepts inside the `"options"` bag on `/api/gene
 | `frequency_penalty` | ✅ | ✅ `FrequencyPenalty` |
 | `num_gpu` | ✅ | ✅ `NumGpu` |
 | `num_thread` | ✅ | ✅ `NumThread` |
-| `min_p` | ✅ | ❌ |
-| `typical_p` | ✅ | ❌ |
-| `num_keep` | ✅ | ❌ |
-| `repeat_last_n` | ✅ | ❌ |
-| `penalize_newline` | ✅ | ❌ |
-| `num_batch` | ✅ | ❌ |
-| `main_gpu` | ✅ | ❌ |
-| `use_mmap` | ✅ | ❌ |
-| `numa` | ✅ | ❌ |
-| Escape hatch for arbitrary unknown future options | — | ❌ | `OllamaOptions` is a sealed record with no extension bag; unknown knobs cannot be sent without a library change. See §6.4. |
+| `min_p` | ✅ | ✅ `MinP` |
+| `typical_p` | ✅ | ✅ `TypicalP` |
+| `num_keep` | ✅ | ✅ `NumKeep` |
+| `repeat_last_n` | ✅ | ✅ `RepeatLastN` |
+| `penalize_newline` | ✅ | ✅ `PenalizeNewline` |
+| `num_batch` | ✅ | ✅ `NumBatch` |
+| `main_gpu` | ✅ | ✅ `MainGpu` |
+| `use_mmap` | ✅ | ✅ `UseMmap` |
+| `numa` | ✅ | ✅ `Numa` |
+| Escape hatch for arbitrary unknown future options | — | ✅ `Extra` | `IReadOnlyDictionary<string, JsonElement>?` — entries are flattened into the serialised `options` object. Unknown keys on incoming JSON round-trip through `Extra` as well. |
 
-> The `OllamaOptions` record also exposes a `Format` property that predates the top-level `format` field and is effectively redundant — prefer the top-level `Format` on `GenerateRequest` / `ChatRequest`.
+> The `OllamaOptions` record also exposes a legacy `Format` property marked `[Obsolete]`; it predates the top-level `format` field and is **not** a documented options-bag key. Use the top-level `Format` on `GenerateRequest` / `ChatRequest` instead.
 
 ---
 
@@ -165,7 +167,7 @@ These are the parameters Ollama accepts inside the `"options"` bag on `/api/gene
 |---|---|---|
 | `model`, `created_at`, `message`, `done`, `done_reason` | ✅ | ✅ |
 | `message.content`, `message.tool_calls`, `message.role` | ✅ | ✅ |
-| `message.thinking` (thinking-capable models) | ✅ | ❌ — no field on `OllamaMessage`; thinking output is silently dropped during deserialisation. See §6.2. |
+| `message.thinking` (thinking-capable models) | ✅ | ✅ `Thinking` — round-trips on both streamed and non-streamed responses. |
 | Timing / token counters | ✅ | ✅ |
 
 ### `/api/embed` → `EmbedResponse`
@@ -188,36 +190,19 @@ These are the parameters Ollama accepts inside the `"options"` bag on `/api/gene
 
 ---
 
-## 6. Known gaps (what is **not** implemented today)
+## 6. Remaining gaps
 
-These are collected from the per-row ❌/⚠️ rows above and elevated here so they are easy to action.
+These are the only ❌ / ⚠️ rows that survive the 2026-04-22 implementation pass.
 
-### 6.1 Structured outputs with a JSON schema object
-
-- The API accepts `format` as either the string `"json"` **or** a full JSON-schema object.
-- `GenerateRequest.Format` / `ChatRequest.Format` are typed as `string?`, and the source-generated JSON context serialises it as a JSON string value, not a JSON object. That means callers cannot send a schema today without a library change. The README lists “Structured outputs” only implicitly via JSON mode.
-- **Impact for Cloud:** Cloud models (especially larger ones such as `gpt-oss:120b-cloud`, `qwen3-coder:480b-cloud`) are the prime consumers of schema-constrained outputs, so this is the most noticeable gap for cloud users.
-
-### 6.2 Thinking / reasoning models
-
-- The API exposes:
-  - A top-level `think: true|false` parameter on `/api/generate` and `/api/chat`.
-  - A per-message `thinking` string field on response messages.
-- Neither is present on `GenerateRequest`, `ChatRequest`, or `OllamaMessage`. Cloud hosts reasoning-capable models (e.g. `deepseek-v3.1:671b-cloud`, `gpt-oss:120b-cloud`), so their thinking traces cannot be read back through this library.
-
-### 6.3 Experimental image-generation parameters
+### 6.1 Experimental image-generation parameters
 
 - `width`, `height`, `steps` are marked **experimental** in the upstream docs and may change. `Ollama.Net` tracks the stable surface and does not model them. If image-gen models become generally available on Cloud, a follow-up is needed.
 
-### 6.4 Escape hatch for unknown `options`
-
-- New Modelfile runtime options land in Ollama fairly often (`min_p`, `typical_p`, etc. were added post-1.0). Because `OllamaOptions` is a sealed record with no `IDictionary<string, JsonElement>` extension bag, any new option requires a library release. Consider adding either the missing fields enumerated in §5, an extensibility point, or both.
-
-### 6.5 OpenAI-compatible `/v1/*` routes
+### 6.2 OpenAI-compatible `/v1/*` routes
 
 - Ollama exposes a partial OpenAI-compat shim (`/v1/chat/completions`, `/v1/completions`, `/v1/embeddings`, `/v1/models`) on both local and cloud. `Ollama.Net` intentionally targets the native `/api/*` surface (richer, more type-safe) and does not wrap the compat routes. This is an explicit design choice rather than a defect, and users who specifically need the OpenAI shape can use the OpenAI .NET SDK pointed at `https://ollama.com/v1/` with the same bearer token.
 
-### 6.6 Nanosecond durations surfaced as `long`
+### 6.3 Nanosecond durations surfaced as `long`
 
 - Timing fields in responses are nanoseconds (per the Ollama spec). `Ollama.Net` exposes them as `long`, not `TimeSpan`. Not a bug, but a minor ergonomic gap — consider a `Duration`-typed computed property (`TotalDuration.ToTimeSpan()`) in a future minor release.
 
@@ -229,11 +214,11 @@ These are collected from the per-row ❌/⚠️ rows above and elevated here so 
 |---|---|
 | Cloud connectivity (base URL, bearer auth, 402/429 handling) | **100%** |
 | Documented REST endpoints (`/api/*`) | **15 / 15** implemented |
-| `/api/generate` request fields | **11 / 13** (missing `think`, structured-output schema object) |
-| `/api/chat` request fields + message sub-fields | **11 / 13** (missing `think`, `message.thinking`) |
-| `options` bag | **15 / 24** (+ no extension escape hatch) |
-| Response fields on generate / chat / embed / progress / tags / ps / show / version | **~95%** (only `message.thinking` missing) |
-| Experimental image-gen params | **0 / 3** |
+| `/api/generate` request fields | **13 / 13** |
+| `/api/chat` request fields + message sub-fields | **13 / 13** |
+| `options` bag | **24 / 24** known knobs + forward-compat `Extra` escape hatch |
+| Response fields on generate / chat / embed / progress / tags / ps / show / version | **100%** |
+| Experimental image-gen params | **0 / 3** (intentional) |
 | OpenAI-compat `/v1/*` shim | intentionally **not covered** |
 
-**Bottom line:** every mainstream Ollama Cloud workflow — chat, generate, streaming, tool calling, embeddings, model management, blob upload, and the cloud-specific auth / rate-limit / quota paths — is covered. The meaningful functional gaps are (1) **structured outputs via a schema object** and (2) **thinking-model support (`think` parameter + `message.thinking`)**, with secondary gaps in the less-used `options` knobs, image-generation experimentals, and an extensibility escape hatch.
+**Bottom line:** the library now matches the full stable Ollama Cloud surface. The only remaining gaps are the explicitly-experimental image-generation parameters and the intentionally-unsupported `/v1/*` OpenAI-compat shim.

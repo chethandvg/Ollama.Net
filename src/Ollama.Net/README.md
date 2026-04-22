@@ -18,6 +18,8 @@ dotnet add package OllamaNet.Client
 - ✅ **AOT + trim friendly** — `System.Text.Json` source generators only
 - ✅ **First-class streaming** via `IAsyncEnumerable<T>`
 - ✅ **Tool calling** with strongly-typed records
+- ✅ **Structured outputs** — `OllamaFormat` (JSON mode or JSON-schema object)
+- ✅ **Thinking models** — `Think` toggle + `OllamaMessage.Thinking` round-trip
 - ✅ **Embeddings** with batch support
 - ✅ **Full model management** (list, show, pull, push, create, delete, copy, ps, blobs)
 - ✅ **Ollama Cloud** support with correct `402`/`429` handling

@@ -95,6 +95,7 @@ internal static class SampleDispatcher
                 "embeddings" => await EmbeddingsSample.RunAsync(client, sampleOptions, cts.Token),
                 "models" => await ModelManagementSample.RunAsync(client, sampleOptions, ollamaOptions, cts.Token),
                 "toolcalling" => await ToolCallingSample.RunAsync(client, sampleOptions, cts.Token),
+                "structured" => await StructuredAndThinkingSample.RunAsync(client, sampleOptions, ollamaOptions, cts.Token),
                 _ => UnknownSample(sample)
             };
         }
@@ -225,6 +226,7 @@ internal static class SampleDispatcher
         Console.WriteLine("  embeddings         Create embeddings and print cosine similarity");
         Console.WriteLine("  models             List, show, and inspect running models");
         Console.WriteLine("  toolcalling        Function/tool calling with a weather tool");
+        Console.WriteLine("  structured         Structured outputs (JSON schema) + thinking-model streaming");
         Console.WriteLine();
         Console.WriteLine("Configuration (precedence: CLI > env > appsettings.{env}.json > appsettings.json):");
         Console.WriteLine("  appsettings.json          Default (local) configuration with all knobs documented.");
