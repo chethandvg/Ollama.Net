@@ -119,8 +119,28 @@ public readonly struct OllamaFormat : IEquatable<OllamaFormat>
     /// </summary>
     public JsonElement AsSchema() => _hasSchema ? _schema : default;
 
-    /// <summary>Implicit conversion from a mode string; equivalent to <see cref="FromString"/>.</summary>
+    /// <summary>
+    /// Implicit conversion from a non-null mode string; equivalent to <see cref="FromString"/>.
+    /// Throws <see cref="ArgumentException"/> on <see langword="null"/> or empty input — callers
+    /// that may have a <see cref="string"/>? value should target <see cref="OllamaFormat"/>?
+    /// instead (see the overload below), which maps <see langword="null"/>/empty to
+    /// <see langword="null"/> so the field is omitted on the wire.
+    /// </summary>
     public static implicit operator OllamaFormat(string mode) => FromString(mode);
+
+    /// <summary>
+    /// Null-tolerant implicit conversion for <see cref="string"/>?-typed values, used
+    /// whenever the target is <see cref="OllamaFormat"/>?. This preserves the ergonomics
+    /// of the legacy <c>string?</c>-based <c>Format</c> API: a <see langword="null"/>
+    /// or empty mode string produces a <see langword="null"/> <see cref="OllamaFormat"/>?,
+    /// so the <c>format</c> field is omitted on the wire instead of throwing or
+    /// emitting an explicit JSON null.
+    /// </summary>
+    /// <param name="mode">
+    /// The mode string, e.g. <c>"json"</c>. <see langword="null"/> and empty are mapped
+    /// to <see langword="null"/>.
+    /// </param>
+    public static implicit operator OllamaFormat?(string? mode) => FromStringOrNull(mode);
 
     /// <summary>Implicit conversion from a schema object; equivalent to <see cref="FromJsonElement"/>.</summary>
     public static implicit operator OllamaFormat(JsonElement schema) => FromJsonElement(schema);
@@ -131,6 +151,18 @@ public readonly struct OllamaFormat : IEquatable<OllamaFormat>
     /// </summary>
     /// <param name="schema">The JSON-schema object.</param>
     public static OllamaFormat FromJsonElement(JsonElement schema) => FromSchema(schema);
+
+    /// <summary>
+    /// CA2225-compliant named alternate for <c>implicit operator OllamaFormat?(string?)</c>.
+    /// Returns <see langword="null"/> for <see langword="null"/> or empty input; otherwise
+    /// delegates to <see cref="FromString"/>.
+    /// </summary>
+    /// <param name="mode">
+    /// The mode string, e.g. <c>"json"</c>. <see langword="null"/> and empty yield
+    /// <see langword="null"/>.
+    /// </param>
+    public static OllamaFormat? FromStringOrNull(string? mode)
+        => string.IsNullOrEmpty(mode) ? (OllamaFormat?)null : FromString(mode);
 
     /// <inheritdoc />
     public bool Equals(OllamaFormat other)

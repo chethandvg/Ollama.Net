@@ -21,6 +21,24 @@ namespace Ollama.Net.Internal.Json;
 /// </remarks>
 internal sealed class OllamaOptionsConverter : JsonConverter<OllamaOptions>
 {
+    /// <summary>
+    /// Snake-case keys owned by the typed <see cref="OllamaOptions"/> properties. Entries in
+    /// <see cref="OllamaOptions.Extra"/> must not collide with any of these — otherwise the
+    /// serialised <c>options</c> object would contain duplicate JSON members, whose semantics
+    /// are undefined across parsers (first-wins vs last-wins) and whose effective value could
+    /// depend on the server implementation.
+    /// </summary>
+    private static readonly HashSet<string> ReservedKeys = new(StringComparer.Ordinal)
+    {
+        "temperature", "top_p", "top_k", "min_p", "typical_p",
+        "num_ctx", "num_predict", "num_keep", "repeat_last_n",
+        "stop", "seed", "repeat_penalty", "penalize_newline",
+        "mirostat_tau", "mirostat_eta", "mirostat",
+        "presence_penalty", "frequency_penalty",
+        "num_gpu", "main_gpu", "num_thread", "num_batch",
+        "use_mmap", "numa",
+        "format",
+    };
     public override OllamaOptions? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
     {
         if (reader.TokenType == JsonTokenType.Null)
@@ -183,6 +201,14 @@ internal sealed class OllamaOptionsConverter : JsonConverter<OllamaOptions>
                 if (string.IsNullOrEmpty(kv.Key))
                 {
                     throw new JsonException("OllamaOptions.Extra must not contain null or empty keys.");
+                }
+
+                if (ReservedKeys.Contains(kv.Key))
+                {
+                    throw new JsonException(
+                        $"OllamaOptions.Extra must not contain the key '{kv.Key}', which is already " +
+                        $"emitted by a typed {nameof(OllamaOptions)} property. Use the typed property " +
+                        "instead so the serialised 'options' object does not contain duplicate members.");
                 }
 
                 writer.WritePropertyName(kv.Key);

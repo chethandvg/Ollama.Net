@@ -161,6 +161,14 @@ Console.WriteLine(doc.RootElement.GetProperty("name").GetString());
 
 Both `GenerateRequest.Format` and `ChatRequest.Format` accept an `OllamaFormat`.
 Implicit conversions from `string` and `JsonElement` make the common cases concise.
+Passing a `string?` that may be `null` is safe — the `format` field is simply
+omitted on the wire:
+
+```csharp
+string? maybeJson = condition ? "json" : null;
+await client.Generation.GenerateAsync(new GenerateRequest(
+    Model: "llama3.2", Prompt: "hi", Format: maybeJson));   // does not throw
+```
 
 </details>
 
@@ -190,7 +198,12 @@ chunks follow.
 <summary><b>🎚️ Model options (all 24 knobs + forward-compat bag)</b></summary>
 
 Every Modelfile runtime option is typed; anything the server adds in the future can be
-forwarded via the `Extra` bag without waiting for a library release:
+forwarded via the `Extra` bag without waiting for a library release.
+
+Keys in `Extra` must **not** collide with typed option names (`temperature`, `top_p`,
+`num_predict`, …) — the serializer rejects such duplicates with a `JsonException`,
+because the resulting JSON would otherwise contain ambiguous members whose value
+depends on whether the parser uses first-wins or last-wins semantics:
 
 ```csharp
 var resp = await client.Generation.GenerateAsync(new GenerateRequest(

@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`OllamaFormat` — `string?` → `OllamaFormat?` no longer throws.** The original
+  implicit `string → OllamaFormat` conversion called `FromString`, which threw
+  for `null` / empty inputs, breaking migration call sites like
+  `string? format = condition ? "json" : null; new GenerateRequest(..., Format: format)`.
+  A new null-tolerant overload `implicit operator OllamaFormat?(string?)` (plus
+  the named alternate `OllamaFormat.FromStringOrNull`) maps `null` / empty back
+  to `null`, so the `format` field is **omitted on the wire** — matching the
+  legacy `string?`-based API semantics. `FromString` itself still throws when
+  called explicitly with a `null` / empty argument.
+- **`OllamaOptions.Extra` — reject key collisions with typed properties.** On
+  write, `OllamaOptionsConverter` now throws `JsonException` if any entry in
+  `Extra` uses a snake-case name already owned by a typed `OllamaOptions`
+  property (e.g. `Extra["temperature"]` while `Temperature` is also set, or
+  simply `Extra["num_predict"]`). This prevents the serialised `options`
+  object from containing duplicate JSON members, whose first-wins vs last-wins
+  semantics are undefined across parsers and could change the effective value
+  depending on the server implementation.
+
 ### Added
 
 - **Structured outputs** — new `OllamaFormat` union type (mode string or JSON-schema

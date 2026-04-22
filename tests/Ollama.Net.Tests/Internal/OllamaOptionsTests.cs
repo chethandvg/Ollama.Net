@@ -95,6 +95,61 @@ public sealed class OllamaOptionsTests
     }
 
     [Fact]
+    public void Serialise_Extra_WithReservedKey_Throws()
+    {
+        // Regression: Extra must reject keys already emitted by typed properties so the
+        // serialised options object never contains duplicate members (which have undefined
+        // first-wins / last-wins semantics across JSON parsers and can therefore change
+        // the effective value depending on server implementation).
+        OllamaOptions opts = new(
+            Temperature: 0.8,
+            Extra: new Dictionary<string, JsonElement>
+            {
+                ["temperature"] = JsonDocument.Parse("0.2").RootElement.Clone(),
+            });
+
+        Action act = () => SerialiseOptions(opts);
+        act.Should().Throw<JsonException>()
+            .WithMessage("*temperature*duplicate*");
+    }
+
+    [Theory]
+    [InlineData("top_p")]
+    [InlineData("min_p")]
+    [InlineData("num_ctx")]
+    [InlineData("stop")]
+    [InlineData("mirostat")]
+    [InlineData("format")]
+    public void Serialise_Extra_WithAnyReservedKey_Throws(string reservedKey)
+    {
+        OllamaOptions opts = new(
+            Extra: new Dictionary<string, JsonElement>
+            {
+                [reservedKey] = JsonDocument.Parse("\"x\"").RootElement.Clone(),
+            });
+
+        Action act = () => SerialiseOptions(opts);
+        act.Should().Throw<JsonException>()
+            .Where(e => e.Message.Contains(reservedKey, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Serialise_Extra_WithReservedKey_NoTypedValueSet_StillThrows()
+    {
+        // Even if the typed property is null (nothing emitted), Extra must not shadow a
+        // reserved name — the user should set the typed property instead.
+        OllamaOptions opts = new(
+            Extra: new Dictionary<string, JsonElement>
+            {
+                ["num_predict"] = JsonDocument.Parse("128").RootElement.Clone(),
+            });
+
+        Action act = () => SerialiseOptions(opts);
+        act.Should().Throw<JsonException>()
+            .WithMessage("*num_predict*");
+    }
+
+    [Fact]
     public void Serialise_StopArray_IsEmittedAsArray()
     {
         string json = SerialiseOptions(new OllamaOptions(Stop: ["\n", "user:"]));

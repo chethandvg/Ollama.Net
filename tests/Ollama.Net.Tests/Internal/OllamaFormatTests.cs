@@ -70,6 +70,80 @@ public sealed class OllamaFormatTests
     }
 
     [Fact]
+    public void ImplicitConversion_FromNullableString_NullInput_ReturnsNullFormat()
+    {
+        // Regression: string? null → OllamaFormat? previously went through the non-nullable
+        // implicit operator and threw. The null-tolerant overload must return null so callers
+        // that migrated from the old `string?` API keep getting "omitted on wire" behaviour.
+        string? maybe = null;
+        OllamaFormat? f = maybe;
+        f.Should().BeNull();
+    }
+
+    [Fact]
+    public void ImplicitConversion_FromNullableString_EmptyInput_ReturnsNullFormat()
+    {
+        string? empty = string.Empty;
+        OllamaFormat? f = empty;
+        f.Should().BeNull();
+    }
+
+    [Fact]
+    public void ImplicitConversion_FromNullableString_ValidInput_ReturnsMode()
+    {
+        string? mode = "json";
+        OllamaFormat? f = mode;
+        f.Should().NotBeNull();
+        f!.Value.Should().Be(OllamaFormat.Json);
+    }
+
+    [Fact]
+    public void FromStringOrNull_ParityWithNullableImplicit()
+    {
+        OllamaFormat.FromStringOrNull(null).Should().BeNull();
+        OllamaFormat.FromStringOrNull(string.Empty).Should().BeNull();
+        OllamaFormat.FromStringOrNull("json").Should().Be(OllamaFormat.Json);
+    }
+
+    [Fact]
+    public void GenerateRequest_WithNullStringFormat_OmitsFormatField()
+    {
+        // Migration scenario from the old `string? Format` API:
+        //   string? format = condition ? "json" : null;
+        //   new GenerateRequest(..., Format: format);
+        // The resulting request must NOT serialise a `format` field at all.
+        string? format = null;
+        var req = new GenerateRequest("llama3", "hi", Format: format);
+        string json = JsonSerializer.Serialize(req, OllamaJsonContext.Default.GenerateRequest);
+
+        using JsonDocument doc = JsonDocument.Parse(json);
+        doc.RootElement.TryGetProperty("format", out _).Should().BeFalse();
+    }
+
+    [Fact]
+    public void ChatRequest_WithNullStringFormat_OmitsFormatField()
+    {
+        string? format = null;
+        var req = new ChatRequest(
+            "llama3",
+            [new OllamaMessage(OllamaRole.User, "hi")],
+            Format: format);
+        string json = JsonSerializer.Serialize(req, OllamaJsonContext.Default.ChatRequest);
+
+        using JsonDocument doc = JsonDocument.Parse(json);
+        doc.RootElement.TryGetProperty("format", out _).Should().BeFalse();
+    }
+
+    [Fact]
+    public void FromString_StillThrowsOnNullOrEmpty_ForExplicitCallers()
+    {
+        // Explicit `OllamaFormat.FromString(...)` keeps strict non-null semantics —
+        // only the implicit string → OllamaFormat? overload is forgiving.
+        Assert.Throws<ArgumentNullException>(() => OllamaFormat.FromString(null!));
+        Assert.Throws<ArgumentException>(() => OllamaFormat.FromString(string.Empty));
+    }
+
+    [Fact]
     public void ImplicitConversion_FromJsonElement_Works()
     {
         using JsonDocument doc = JsonDocument.Parse("""{"type":"object"}""");
