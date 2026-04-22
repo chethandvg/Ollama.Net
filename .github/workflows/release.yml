@@ -36,12 +36,37 @@ jobs:
       - name: Pack
         run: dotnet pack src/Ollama.Net/Ollama.Net.csproj -c Release --no-build -o artefacts
 
-      - name: Push to NuGet.org
+      - name: Verify publish inputs
         env:
           NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
         run: |
-          dotnet nuget push "artefacts/*.nupkg"  -s https://api.nuget.org/v3/index.json -k "$NUGET_API_KEY" --skip-duplicate
-          dotnet nuget push "artefacts/*.snupkg" -s https://api.nuget.org/v3/index.json -k "$NUGET_API_KEY" --skip-duplicate
+          # Print the key length only — never the key itself — to confirm the
+          # secret is present and not truncated/empty in this run.
+          echo "NUGET_API_KEY length: ${#NUGET_API_KEY}"
+          echo "Artefacts to be pushed:"
+          ls -la artefacts/
+
+      - name: Push .nupkg to NuGet.org
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+        run: |
+          dotnet nuget push "artefacts/*.nupkg" \
+            -s https://api.nuget.org/v3/index.json \
+            -k "$NUGET_API_KEY" \
+            --skip-duplicate
+
+      - name: Push .snupkg (symbols) to NuGet.org
+        # Symbol-package pushes occasionally 403 independently of the main
+        # package push (e.g. if the key lacks symbol-push scope). Don't let a
+        # symbols failure fail the whole release after .nupkg has been pushed.
+        continue-on-error: true
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+        run: |
+          dotnet nuget push "artefacts/*.snupkg" \
+            -s https://api.nuget.org/v3/index.json \
+            -k "$NUGET_API_KEY" \
+            --skip-duplicate
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
