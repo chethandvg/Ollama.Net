@@ -47,7 +47,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [0.1.0]: https://github.com/chethandvg/Ollama.Net/releases/tag/v0.1.0
 
 
-## [1.0.0] — YYYY-MM-DD
+## [1.0.0] — 2026-04-22
 
 _Copy the entries that were under `[Unreleased]` here._
 
@@ -59,3 +59,8 @@ _Copy the entries that were under `[Unreleased]` here._
 
 ### Added
 - Package icon displayed on NuGet.org search results.
+
+## [1.0.2] — 2026-04-22
+
+### Changed
+- Enabled NuGet package validation against 1.0.0 baseline to catch accidental breaking API changes.

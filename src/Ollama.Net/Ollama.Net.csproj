@@ -53,8 +53,8 @@
 
     <!-- API compat / package validation. Disabled until 1.0.0 is published;
          enable and set the baseline version after the first stable release. -->
-    <EnablePackageValidation>false</EnablePackageValidation>
-    <!-- <PackageValidationBaselineVersion>1.0.0</PackageValidationBaselineVersion> -->
+    <EnablePackageValidation>true</EnablePackageValidation>
+	<PackageValidationBaselineVersion>1.0.0</PackageValidationBaselineVersion>
 
     <!-- MinVer: compute version from git tags. See docs/VERSIONING.md. -->
     <MinVerTagPrefix>v</MinVerTagPrefix>
