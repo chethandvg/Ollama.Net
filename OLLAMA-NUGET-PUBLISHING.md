@@ -173,7 +173,7 @@ All 78 tests must pass and the build must produce **zero warnings, zero errors**
 
 The project ships with `README.md` and `CHANGELOG.md` (both already packaged via `<None Include="…" Pack="true" />`). Before the first tag:
 
-- [ ] **`README.md`** — update the package name, badge URLs, install snippets (`dotnet add package Ollama.Net`), and the "Why another client?" section.
+- [ ] **`README.md`** — update the package name, badge URLs, install snippets (`dotnet add package OllamaNet.Client`), and the "Why another client?" section.
 - [ ] **`CHANGELOG.md`** — add a `## [1.0.0] — YYYY-MM-DD` entry describing the migration; follow [Keep a Changelog](https://keepachangelog.com/).
 - [ ] **`LICENSE`** — keep MIT (pre‑created by `gh repo create`).
 - [ ] **`SECURITY.md`** — one short paragraph telling users where to file vulnerabilities (GitHub private advisories work well).
@@ -362,11 +362,11 @@ Hand‑edit `<Version>` in the csproj and tag with the same value. Simpler, but 
 4. Watch the `ci` workflow go green.
 5. `git tag v1.0.0 && git push origin v1.0.0`
 6. Approve the `nuget` environment when the `release` workflow requests it.
-7. Verify the package at `https://www.nuget.org/packages/Ollama.Net/1.0.0` (allow ~5 min for indexing).
+7. Verify the package at `https://www.nuget.org/packages/OllamaNet.Client/1.0.0` (allow ~5 min for indexing).
 8. Test the live package in a throwaway console app:
    ```bash
    dotnet new console -o probe && cd probe
-   dotnet add package Ollama.Net --version 1.0.0
+   dotnet add package OllamaNet.Client --version 1.0.0
    # paste the QuickStart sample, run, confirm output
    ```
 
@@ -386,16 +386,16 @@ Hand‑edit `<Version>` in the csproj and tag with the same value. Simpler, but 
 
 ## 9. Integrating back into Krutaka
 
-Once `Ollama.Net@1.0.0` is published, deleting `src/Krutaka.Ollama` from this repo and replacing it with a `PackageReference` is a one‑line change:
+Once `OllamaNet.Client@1.0.0` is published, deleting `src/Krutaka.Ollama` from this repo and replacing it with a `PackageReference` is a one‑line change:
 
 ```xml
 <!-- Directory.Packages.props -->
-<PackageVersion Include="Ollama.Net" Version="1.0.0" />
+<PackageVersion Include="OllamaNet.Client" Version="1.0.0" />
 ```
 
 ```xml
 <!-- wherever Krutaka.Console currently depends on Krutaka.Ollama -->
-<PackageReference Include="Ollama.Net" />
+<PackageReference Include="OllamaNet.Client" />
 ```
 
 …then global‑rename `using Krutaka.Ollama` → `using Ollama.Net` across the Krutaka solution. Because every public type in `Krutaka.Ollama` is a plain record/interface/enum — nothing references `Krutaka.Core` — this migration is a no‑op at runtime.

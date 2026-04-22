@@ -6,8 +6,8 @@
 
 *Generation · Chat · Streaming · Embeddings · Tool Calling · Model Management · Ollama Cloud*
 
-[![NuGet](https://img.shields.io/nuget/v/Ollama.Net.svg?logo=nuget&label=NuGet)](https://www.nuget.org/packages/Ollama.Net)
-[![Downloads](https://img.shields.io/nuget/dt/Ollama.Net.svg?logo=nuget&label=downloads)](https://www.nuget.org/packages/Ollama.Net)
+[![NuGet](https://img.shields.io/nuget/v/OllamaNet.Client.svg?logo=nuget&label=NuGet)](https://www.nuget.org/packages/OllamaNet.Client)
+[![Downloads](https://img.shields.io/nuget/dt/OllamaNet.Client.svg?logo=nuget&label=downloads)](https://www.nuget.org/packages/OllamaNet.Client)
 [![CI](https://github.com/chethandvg/Ollama.Net/actions/workflows/ci.yml/badge.svg)](https://github.com/chethandvg/Ollama.Net/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![.NET](https://img.shields.io/badge/.NET-8%20%7C%209%20%7C%2010-512BD4?logo=dotnet)](https://dotnet.microsoft.com)
@@ -36,8 +36,13 @@
 ## 📦 Installation
 
 ```bash
-dotnet add package Ollama.Net
+dotnet add package OllamaNet.Client
 ```
+
+> **Note:** the NuGet package ID is **`OllamaNet.Client`**, but the assembly
+> and root namespace are still `Ollama.Net` — your `using` directives and
+> code don't change. The short ID `Ollama.Net` is already owned by another
+> publisher on nuget.org.
 
 Supported runtimes: **.NET 8**, **.NET 9**, **.NET 10**.
 
