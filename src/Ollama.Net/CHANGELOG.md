@@ -53,3 +53,9 @@ _Copy the entries that were under `[Unreleased]` here._
 
 [Unreleased]: https://github.com/chethandvg/Ollama.Net/compare/v1.0.0...HEAD
 [1.0.0]:      https://github.com/chethandvg/Ollama.Net/releases/tag/v1.0.0
+
+
+## [Unreleased]
+
+### Added
+- Package icon displayed on NuGet.org search results.
