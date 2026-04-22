@@ -51,19 +51,32 @@
     <IsTrimmable>true</IsTrimmable>
     <IsAotCompatible>true</IsAotCompatible>
 
-    <!-- API compat / package validation. Disabled until 1.0.0 is published;
-         enable and set the baseline version after the first stable release. -->
+    <!-- API compat / package validation. Baselined against the latest shipped
+         1.x so that accidental breaking changes within the 1.x line are caught.
+         For the intentional 2.0.0 SemVer-major break we clear the baseline in
+         the `_ClearPackageValidationBaselineForMajorBump` target below, once
+         MinVer has computed a 2.x version. After v2.0.0 is published, bump the
+         baseline to 2.0.0 in a follow-up commit and drop the clear-baseline
+         target. -->
     <EnablePackageValidation>true</EnablePackageValidation>
-	<PackageValidationBaselineVersion>1.0.0</PackageValidationBaselineVersion>
+	<PackageValidationBaselineVersion>1.0.3</PackageValidationBaselineVersion>
 
-    <!-- MinVer: compute version from git tags. See docs/VERSIONING.md. -->
+    <!-- MinVer: compute version from git tags. See docs/VERSIONING.md.
+         MinVerMinimumMajorMinor floors the computed version at 2.0 so that
+         untagged `main` builds produce 2.0.0-preview.0.N (not
+         1.0.4-preview.0.N). Without this, the 2.0.0 API breaks introduced on
+         this branch would make pre-tag CI packs fail against the 1.0.3
+         baseline, because the MinVerMajor>=2 guard below wouldn't trigger.
+         After v2.0.0 is published, replace this with 2.1 (or drop it) and set
+         PackageValidationBaselineVersion=2.0.0 in a follow-up commit. -->
     <MinVerTagPrefix>v</MinVerTagPrefix>
+    <MinVerMinimumMajorMinor>2.0</MinVerMinimumMajorMinor>
     <MinVerDefaultPreReleaseIdentifiers>preview.0</MinVerDefaultPreReleaseIdentifiers>
   </PropertyGroup>
 
   <ItemGroup>
     <None Include="README.md" Pack="true" PackagePath="\" />
-    <None Include="CHANGELOG.md" Pack="true" PackagePath="\" />
+    <None Include="..\..\CHANGELOG.md" Link="CHANGELOG.md" Pack="true" PackagePath="\" />
 	<None Include="icon.png" Pack="true" PackagePath="\" />
   </ItemGroup>
 
@@ -78,5 +91,22 @@
     <PackageReference Include="MinVer" PrivateAssets="all" />
     <PackageReference Include="Microsoft.SourceLink.GitHub" PrivateAssets="all" />
   </ItemGroup>
+
+  <!--
+    Clear PackageValidationBaselineVersion when MinVer has computed a major
+    version >= 2, so the intentional v2.0.0 API break does not fail package
+    validation against the 1.0.3 baseline. Must run after MinVer populates
+    $(MinVerMajor) and before the SDK's RunPackageValidation target consumes
+    $(PackageValidationBaselineVersion). Delete this target in the follow-up
+    PR that re-baselines against 2.0.0.
+  -->
+  <Target Name="_ClearPackageValidationBaselineForMajorBump"
+          AfterTargets="MinVer"
+          BeforeTargets="RunPackageValidation;_GetPackageValidationBaselinePackage">
+    <PropertyGroup Condition="'$(MinVerMajor)' != '' And $([MSBuild]::VersionGreaterThanOrEquals('$(MinVerMajor).0.0', '2.0.0'))">
+      <PackageValidationBaselineVersion></PackageValidationBaselineVersion>
+      <DisablePackageBaselineValidation>true</DisablePackageBaselineValidation>
+    </PropertyGroup>
+  </Target>
 
 </Project>

@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0] — 2026-04-22
+
+> **Breaking release.** `GenerateRequest.Format` / `ChatRequest.Format` change
+> from `string?` to `OllamaFormat?`, and the positional primary constructors
+> of the `OllamaMessage`, `OllamaOptions`, `GenerateRequest`, and `ChatRequest`
+> records gain new parameters (binary-breaking). Call sites that use named
+> arguments and `Format: "json"` continue to compile thanks to the implicit
+> `string → OllamaFormat` conversion; consumers of the positional ctors /
+> `Deconstruct` must update. See _Changed_ below.
+
 ### Fixed
 
 - **`OllamaFormat` — `string?` → `OllamaFormat?` no longer throws.** The original
@@ -63,7 +73,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   compile thanks to the implicit `string → OllamaFormat` conversion; code that
   read the property back as `string` needs to call `.AsMode()`.
 
-### Changed (pre-existing)
+## [1.0.3] — 2026-04-22
+
+### Added
+
+- Package icon displayed on NuGet.org search results.
+
+## [1.0.2] — 2026-04-22
+
+### Changed
+
+- Enabled NuGet package validation against the `1.0.0` baseline to catch
+  accidental breaking API changes.
+
+## [1.0.1] — 2026-04-22
+
+### Changed
+
+- Internal release-pipeline fixes; no API changes.
+
+## [1.0.0] — 2026-04-22
+
+> First stable release of **`OllamaNet.Client`** (assembly / root namespace
+> `Ollama.Net`). Same code as `Krutaka.Ollama 0.1.0`, published under a new
+> package identity.
+
+### Changed
 
 - NuGet package ID set to **`OllamaNet.Client`** (assembly name and root
   namespace remain `Ollama.Net`). The short `Ollama.Net` ID is owned by
@@ -113,5 +148,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - No cookie or credential storage by default.
 - Optional `AuthorizationHeader` / `ApiKey` for Ollama Cloud.
 
-[Unreleased]: https://github.com/chethandvg/Ollama.Net/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/chethandvg/Ollama.Net/releases/tag/v0.1.0
+[Unreleased]: https://github.com/chethandvg/Ollama.Net/compare/v2.0.0...HEAD
+[2.0.0]:      https://github.com/chethandvg/Ollama.Net/releases/tag/v2.0.0
+[1.0.3]:      https://github.com/chethandvg/Ollama.Net/releases/tag/v1.0.3
+[1.0.2]:      https://github.com/chethandvg/Ollama.Net/releases/tag/v1.0.2
+[1.0.1]:      https://github.com/chethandvg/Ollama.Net/releases/tag/v1.0.1
+[1.0.0]:      https://github.com/chethandvg/Ollama.Net/releases/tag/v1.0.0
+[0.1.0]:      https://github.com/chethandvg/Ollama.Net/releases/tag/v0.1.0
