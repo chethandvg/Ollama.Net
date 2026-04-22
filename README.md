@@ -301,6 +301,9 @@ All three must succeed with **0 warnings and 0 errors** before you open a PR.
   releasing with **MinVer**.
 - [`docs/PRE-PUBLISH-CHECKLIST.md`](docs/PRE-PUBLISH-CHECKLIST.md) — one-off
   checklist of GitHub/NuGet settings to tick before the first tag.
+- [`docs/OLLAMA-CLOUD-API-COVERAGE.md`](docs/OLLAMA-CLOUD-API-COVERAGE.md) —
+  feature-by-feature map of the Ollama (Cloud) REST API against what this
+  library currently implements, with ✅ / ⚠️ / ❌ status.
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) · [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md) · [`SECURITY.md`](SECURITY.md)
 - [`CHANGELOG.md`](CHANGELOG.md)
 - [`OLLAMA-NUGET-PUBLISHING.md`](OLLAMA-NUGET-PUBLISHING.md) — the original
