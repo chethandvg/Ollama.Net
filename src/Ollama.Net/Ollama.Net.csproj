@@ -56,14 +56,7 @@
     <EnablePackageValidation>true</EnablePackageValidation>
 	<PackageValidationBaselineVersion>2.0.0</PackageValidationBaselineVersion>
 
-    <!-- MinVer: compute version from git tags. See docs/VERSIONING.md.
-         MinVerMinimumMajorMinor floors the computed version at 2.0 so that
-         untagged `main` builds produce 2.0.0-preview.0.N (not
-         1.0.4-preview.0.N). Without this, the 2.0.0 API breaks introduced on
-         this branch would make pre-tag CI packs fail against the 1.0.3
-         baseline, because the MinVerMajor>=2 guard below wouldn't trigger.
-         After v2.0.0 is published, replace this with 2.1 (or drop it) and set
-         PackageValidationBaselineVersion=2.0.0 in a follow-up commit. -->
+    <!-- MinVer: compute version from git tags. See docs/VERSIONING.md. -->
     <MinVerTagPrefix>v</MinVerTagPrefix>
     <MinVerDefaultPreReleaseIdentifiers>preview.0</MinVerDefaultPreReleaseIdentifiers>
   </PropertyGroup>
