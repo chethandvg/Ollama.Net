@@ -134,12 +134,18 @@ public sealed class PrivateNetworkGuardTests
             IPAddress[] addresses = { IPAddress.Parse("10.0.0.1"), IPAddress.Loopback };
             Task<TcpClient> acceptTask = listener.AcceptTcpClientAsync();
 
-            await using Stream stream = await PrivateNetworkGuard.ConnectToFirstAllowedAsync(
-                "loopback.test", port, addresses, allowLoopback: true, CancellationToken.None).ConfigureAwait(false);
-
-            stream.Should().BeAssignableTo<NetworkStream>();
-            using TcpClient accepted = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
-            accepted.Connected.Should().BeTrue();
+            Stream stream = await PrivateNetworkGuard.ConnectToFirstAllowedAsync(
+                "loopback.test", port, addresses, allowLoopback: true, CancellationToken.None).ConfigureAwait(true);
+            try
+            {
+                stream.Should().BeAssignableTo<NetworkStream>();
+                using TcpClient accepted = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(true);
+                accepted.Connected.Should().BeTrue();
+            }
+            finally
+            {
+                await stream.DisposeAsync().ConfigureAwait(true);
+            }
         }
         finally
         {
