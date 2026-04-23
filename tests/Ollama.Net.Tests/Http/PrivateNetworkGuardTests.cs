@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Net;
 using System.Net.Sockets;
 using FluentAssertions;
@@ -104,7 +105,11 @@ public sealed class PrivateNetworkGuardTests
         // fail fast with ECONNREFUSED; the aggregate must carry one inner
         // exception per candidate, proving the fallback loop iterates every
         // address instead of bailing on the first failure.
-        IPAddress[] addresses = { IPAddress.Loopback, IPAddress.Loopback, IPAddress.Loopback };
+        // Three identical loopback entries — we're not testing distinct
+        // addresses, we're asserting the fallback loop keeps iterating after
+        // each failure. Aggregate must have exactly `addresses.Length` inner
+        // exceptions once every candidate has been tried.
+        IPAddress[] addresses = Enumerable.Repeat(IPAddress.Loopback, 3).ToArray();
 
         Func<Task> act = async () => await PrivateNetworkGuard.ConnectToFirstAllowedAsync(
             "loopback.test", closedPort, addresses, allowLoopback: true, CancellationToken.None).ConfigureAwait(false);
@@ -144,6 +149,13 @@ public sealed class PrivateNetworkGuardTests
 
     private static int GetFreePort()
     {
+        // Bind a probe listener to :0 (OS-assigned), record the port, release
+        // it. There is a theoretical race where another process grabs the port
+        // before the test reconnects; in practice (single-threaded test, sub-ms
+        // window, full ephemeral range available) this is vanishingly rare and
+        // would only manifest as an unrelated test failure. Documented rather
+        // than defended against because any retry-on-race scaffolding would be
+        // noise compared with the test's actual intent.
         using TcpListener probe = new(IPAddress.Loopback, 0);
         probe.Start();
         int port = ((IPEndPoint)probe.LocalEndpoint).Port;

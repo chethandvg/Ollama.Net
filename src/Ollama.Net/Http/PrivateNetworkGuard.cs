@@ -225,6 +225,11 @@ internal static class PrivateNetworkGuard
             }
         }
 
+        // Invariant: if every candidate failed, `failures` was populated at
+        // least `candidates.Count` times (>= 1 because we returned early when
+        // candidates was empty). Make the assumption explicit for maintenance.
+        System.Diagnostics.Debug.Assert(failures is not null, "failures must be populated when every connect attempt failed");
+
         throw new AggregateException(
             $"Failed to connect to '{host}:{port}' after trying {candidates.Count} allowed address(es).",
             failures!);
