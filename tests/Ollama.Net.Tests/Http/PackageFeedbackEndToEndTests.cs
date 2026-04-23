@@ -1,3 +1,4 @@
+using System.Net.Sockets;
 using FluentAssertions;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
@@ -70,18 +71,22 @@ public sealed class PackageFeedbackEndToEndTests
     }
 
     [Fact]
-    public async Task Request_ToUnresolvableHost_Surfaces_OllamaConfigurationException()
+    public async Task DnsFailure_Surfaces_OllamaConfigurationException()
     {
+        // Simulate a DNS-class SocketException deterministically via the
+        // ConfigureOllamaHttpClient seam — no real network / DNS dependency.
         ServiceCollection services = new();
         services.AddLogging();
         services.AddOllamaClient(o =>
         {
-            // RFC2606 reserves .invalid for guaranteed non-resolvable names.
-            o.BaseAddress = new Uri("http://ollama-nope.invalid/");
+            o.BaseAddress = new Uri("http://ollama-nope.example/");
             o.AllowInsecureHttp = true;
             o.Timeout = TimeSpan.FromSeconds(10);
             o.MaxRetries = 0;
         });
+
+        services.ConfigureOllamaHttpClient()
+            .ConfigurePrimaryHttpMessageHandler(() => new DnsFailingHandler());
 
         await using ServiceProvider sp = services.BuildServiceProvider();
         IOllamaClient client = sp.GetRequiredService<IOllamaClient>();
@@ -89,6 +94,18 @@ public sealed class PackageFeedbackEndToEndTests
         Func<Task> act = () => client.Generation.GenerateAsync(new GenerateRequest("m", "hi"));
         (await act.Should().ThrowAsync<OllamaConfigurationException>())
             .Which.Message.Should().Contain("DNS resolution failed");
+    }
+
+    private sealed class DnsFailingHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            // HttpClient surfaces low-level SocketException wrapped in HttpRequestException;
+            // reproduce that exact shape so the translator behaves as in production.
+            SocketException socketEx = new((int)SocketError.HostNotFound);
+            throw new HttpRequestException(socketEx.Message, socketEx);
+        }
     }
 
     [Fact]

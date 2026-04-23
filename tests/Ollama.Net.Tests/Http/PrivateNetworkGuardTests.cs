@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Sockets;
 using FluentAssertions;
 using Ollama.Net.Http;
 using Xunit;
@@ -75,5 +76,78 @@ public sealed class PrivateNetworkGuardTests
 
         PrivateNetworkGuard.IsGloballyRoutable(mappedPublic, allowLoopback: false).Should().BeTrue();
         PrivateNetworkGuard.IsGloballyRoutable(mappedPrivate, allowLoopback: false).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task ConnectToFirstAllowed_ThrowsConfigurationException_WhenAllAddressesRejected()
+    {
+        IPAddress[] allPrivate =
+        {
+            IPAddress.Parse("10.0.0.1"),
+            IPAddress.Parse("192.168.1.1"),
+        };
+
+        Func<Task> act = async () => await PrivateNetworkGuard.ConnectToFirstAllowedAsync(
+            "blocked.example", 80, allPrivate, allowLoopback: false, CancellationToken.None).ConfigureAwait(false);
+
+        (await act.Should().ThrowAsync<Ollama.Net.Exceptions.OllamaConfigurationException>())
+            .Which.Message.Should().Contain("none of which are globally routable");
+    }
+
+    [Fact]
+    public async Task ConnectToFirstAllowed_TriesEveryAllowedCandidate_WhenAllFail()
+    {
+        // Pick one loopback port that is guaranteed closed.
+        int closedPort = GetFreePort();
+
+        // Supply three allowed candidates (all loopback). Every connect must
+        // fail fast with ECONNREFUSED; the aggregate must carry one inner
+        // exception per candidate, proving the fallback loop iterates every
+        // address instead of bailing on the first failure.
+        IPAddress[] addresses = { IPAddress.Loopback, IPAddress.Loopback, IPAddress.Loopback };
+
+        Func<Task> act = async () => await PrivateNetworkGuard.ConnectToFirstAllowedAsync(
+            "loopback.test", closedPort, addresses, allowLoopback: true, CancellationToken.None).ConfigureAwait(false);
+
+        AggregateException agg = (await act.Should().ThrowAsync<AggregateException>()).Which;
+        agg.InnerExceptions.Should().HaveCount(addresses.Length);
+        agg.InnerExceptions.Should().AllSatisfy(e => e.Should().BeAssignableTo<SocketException>());
+    }
+
+    [Fact]
+    public async Task ConnectToFirstAllowed_Succeeds_AfterFilteringRejectedAddresses()
+    {
+        // First address is private → filtered out by the allow-list; second is
+        // loopback with a live listener. Proves the guard drops rejected
+        // addresses and still connects via the surviving candidate.
+        using TcpListener listener = new(IPAddress.Loopback, 0);
+        listener.Start();
+        int port = ((IPEndPoint)listener.LocalEndpoint).Port;
+
+        try
+        {
+            IPAddress[] addresses = { IPAddress.Parse("10.0.0.1"), IPAddress.Loopback };
+            Task<TcpClient> acceptTask = listener.AcceptTcpClientAsync();
+
+            await using Stream stream = await PrivateNetworkGuard.ConnectToFirstAllowedAsync(
+                "loopback.test", port, addresses, allowLoopback: true, CancellationToken.None).ConfigureAwait(false);
+
+            stream.Should().BeAssignableTo<NetworkStream>();
+            using TcpClient accepted = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+            accepted.Connected.Should().BeTrue();
+        }
+        finally
+        {
+            listener.Stop();
+        }
+    }
+
+    private static int GetFreePort()
+    {
+        using TcpListener probe = new(IPAddress.Loopback, 0);
+        probe.Start();
+        int port = ((IPEndPoint)probe.LocalEndpoint).Port;
+        probe.Stop();
+        return port;
     }
 }

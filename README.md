@@ -329,6 +329,13 @@ builder.Services.AddOllamaClient(builder.Configuration.GetSection("Ollama"));
 | `AuthorizationHeader` | `null` | Raw `Authorization` header (takes precedence over `ApiKey`). |
 | `ApiKey` | `null` | Shortcut for `Authorization: Bearer {ApiKey}` — use for Ollama Cloud. |
 | `AllowInsecureHttp` | `false` | Allow HTTP to non-loopback addresses. |
+| `DisallowPrivateNetworks` | `false` | Post-DNS SSRF guard — rejects connections to RFC1918 / link-local / unique-local / CGNAT / multicast / reserved IPs per redirect hop. Pair with `AllowInsecureHttp = false`. |
+
+> 🔐 **Rotating `ApiKey` / `AuthorizationHeader`** is picked up per-request via
+> `IOptionsMonitor<OllamaClientOptions>` — no need to rebuild the DI container.
+> For full `HttpClient` / primary-handler control (custom `ConnectCallback`,
+> extra `DelegatingHandler`s), use `services.ConfigureOllamaHttpClient()` which
+> returns the package's `IHttpClientBuilder`.
 
 </details>
 

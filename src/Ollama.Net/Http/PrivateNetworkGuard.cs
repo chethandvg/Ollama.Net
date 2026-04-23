@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Net;
 using System.Net.Http;
 using System.Net.Sockets;
@@ -140,41 +141,93 @@ internal static class PrivateNetworkGuard
                 .GetHostAddressesAsync(endpoint.Host, cancellationToken)
                 .ConfigureAwait(false);
 
-            IPAddress? chosen = null;
-            foreach (IPAddress addr in addresses)
-            {
-                if (IsGloballyRoutable(addr, allowLoopback))
-                {
-                    chosen = addr;
-                    break;
-                }
-            }
+            return await ConnectToFirstAllowedAsync(
+                endpoint.Host, endpoint.Port, addresses, allowLoopback, cancellationToken)
+                .ConfigureAwait(false);
+        };
+    }
 
-            if (chosen is null)
+    /// <summary>
+    /// Filters <paramref name="addresses"/> through the allow-list then attempts to
+    /// connect to each surviving candidate in DNS order, returning a
+    /// <see cref="NetworkStream"/> for the first success. Exposed as
+    /// <c>internal</c> so unit tests can exercise the address-fallback loop without
+    /// mocking DNS.
+    /// </summary>
+    /// <exception cref="OllamaConfigurationException">
+    /// Thrown when no DNS result passes the allow-list.
+    /// </exception>
+    /// <exception cref="AggregateException">
+    /// Thrown when every allowed candidate fails to connect; the inner exceptions
+    /// are the underlying <see cref="SocketException"/>s / <see cref="IOException"/>s.
+    /// </exception>
+    [SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope",
+        Justification = "Socket ownership is transferred to the returned NetworkStream on the success path; on every failure path we call socket.Dispose() explicitly.")]
+    [SuppressMessage("Maintainability", "CA1508:Avoid dead conditional code",
+        Justification = "'failures' is lazily allocated inside the 'when' catch filter, which the analyzer does not trace.")]
+    internal static async ValueTask<Stream> ConnectToFirstAllowedAsync(
+        string host,
+        int port,
+        IReadOnlyList<IPAddress> addresses,
+        bool allowLoopback,
+        CancellationToken cancellationToken)
+    {
+        // Collect every DNS result that passes the allow-list. We keep the
+        // original DNS order (rather than preferring a specific family) so
+        // operators keep full control via resolver/search-order policy.
+        List<IPAddress> candidates = new(addresses.Count);
+        for (int i = 0; i < addresses.Count; i++)
+        {
+            if (IsGloballyRoutable(addresses[i], allowLoopback))
             {
-                throw new OllamaConfigurationException(
-                    $"Connection to '{endpoint.Host}:{endpoint.Port}' rejected: host resolved " +
-                    $"to {addresses.Length} address(es), none of which are globally routable. " +
-                    "Disable OllamaClientOptions.DisallowPrivateNetworks or point BaseAddress at a public endpoint.");
+                candidates.Add(addresses[i]);
             }
+        }
 
-            Socket socket = new(chosen.AddressFamily, SocketType.Stream, ProtocolType.Tcp)
+        if (candidates.Count == 0)
+        {
+            throw new OllamaConfigurationException(
+                $"Connection to '{host}:{port}' rejected: host resolved " +
+                $"to {addresses.Count} address(es), none of which are globally routable. " +
+                "Disable OllamaClientOptions.DisallowPrivateNetworks or point BaseAddress at a public endpoint.");
+        }
+
+        // Try candidates in DNS order. A single broken family (e.g. AAAA on
+        // an IPv4-only host) should not make DisallowPrivateNetworks regress
+        // dual-stack reliability compared with the default SocketsHttpHandler,
+        // which itself fans out over all addresses. We stop at the first
+        // successful connect and aggregate all errors if every attempt fails.
+        List<Exception>? failures = null;
+        for (int i = 0; i < candidates.Count; i++)
+        {
+            IPAddress candidate = candidates[i];
+            Socket socket = new(candidate.AddressFamily, SocketType.Stream, ProtocolType.Tcp)
             {
                 NoDelay = true,
             };
 
             try
             {
-                await socket.ConnectAsync(new IPEndPoint(chosen, endpoint.Port), cancellationToken)
+                await socket.ConnectAsync(new IPEndPoint(candidate, port), cancellationToken)
                     .ConfigureAwait(false);
                 return new NetworkStream(socket, ownsSocket: true);
             }
-            catch
+            catch (OperationCanceledException)
             {
                 socket.Dispose();
                 throw;
             }
-        };
+            catch (Exception ex) when (ex is SocketException or IOException)
+            {
+                socket.Dispose();
+                (failures ??= new List<Exception>()).Add(ex);
+                // Fall through to the next candidate.
+            }
+        }
+
+        throw new AggregateException(
+            $"Failed to connect to '{host}:{port}' after trying {candidates.Count} allowed address(es).",
+            failures!);
     }
 #endif
 }

@@ -15,7 +15,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   documentation / multicast / reserved ranges (and, unless the configured base
   address is itself a loopback host, loopback too). The check runs on every DNS
   resolution — including redirect hops — closing the gap left by `AllowInsecureHttp`,
-  which only validates the configured URL.
+  which only validates the configured URL. When a host resolves to multiple
+  globally-routable IPs, the guard attempts each one in DNS order and only
+  fails after every candidate has been tried (matches the default
+  `SocketsHttpHandler` fallback behaviour so enabling the option doesn't
+  regress dual-stack reliability).
 - **`OllamaServiceCollectionExtensions.ConfigureOllamaHttpClient(name?)`** —
   returns the underlying `IHttpClientBuilder` for the package-registered named
   client, so consumers can layer `ConfigurePrimaryHttpMessageHandler(...)`

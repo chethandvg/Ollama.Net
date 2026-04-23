@@ -87,13 +87,19 @@ internal sealed class OllamaHttpClient
     {
         ArgumentNullException.ThrowIfNull(responseTypeInfo);
 
+        // Snapshot live options once for the full lifetime of this request so
+        // Timeout, headers, and error messages all agree even if another thread
+        // rotates OllamaClientOptions mid-call. Subsequent requests pick up the
+        // new values automatically via IOptionsMonitor.
+        OllamaClientOptions options = CurrentOptions;
+
         using Activity? activity = StartActivity(method, path, streaming: false);
         Stopwatch stopwatch = Stopwatch.StartNew();
 
-        using HttpRequestMessage request = CreateRequest(method, path, body, requestTypeInfo, isStreaming: false);
+        using HttpRequestMessage request = CreateRequest(method, path, body, requestTypeInfo, isStreaming: false, options);
 
         using CancellationTokenSource timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeoutCts.CancelAfter(CurrentOptions.Timeout);
+        timeoutCts.CancelAfter(options.Timeout);
         CancellationToken effectiveCt = timeoutCts.Token;
 
         HttpResponseMessage response;
@@ -110,14 +116,14 @@ internal sealed class OllamaHttpClient
         {
             OllamaLog.ConnectionError(_logger, ex, path);
             OllamaMetrics.RequestsFailed.Add(1, new KeyValuePair<string, object?>("endpoint", path));
-            throw TranslateTransportError(ex, path);
+            throw TranslateTransportError(ex, path, options);
         }
         catch (OperationCanceledException) when (
             timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
         {
             OllamaMetrics.RequestsFailed.Add(1, new KeyValuePair<string, object?>("endpoint", path));
             throw new OllamaTimeoutException(
-                $"The Ollama request to '{path}' timed out after {CurrentOptions.Timeout}. " +
+                $"The Ollama request to '{path}' timed out after {options.Timeout}. " +
                 "Increase OllamaClientOptions.Timeout for large prompts or use the streaming API.",
                 new TimeoutException())
             {
@@ -195,9 +201,11 @@ internal sealed class OllamaHttpClient
         CancellationToken cancellationToken)
         where TRequest : class
     {
-        using HttpRequestMessage request = CreateRequest(method, path, body, requestTypeInfo, isStreaming: false);
+        OllamaClientOptions options = CurrentOptions;
+
+        using HttpRequestMessage request = CreateRequest(method, path, body, requestTypeInfo, isStreaming: false, options);
         using CancellationTokenSource timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeoutCts.CancelAfter(CurrentOptions.Timeout);
+        timeoutCts.CancelAfter(options.Timeout);
 
         HttpResponseMessage response;
         try
@@ -209,14 +217,14 @@ internal sealed class OllamaHttpClient
         catch (Exception ex) when (ex is HttpRequestException or SocketException)
         {
             OllamaMetrics.RequestsFailed.Add(1, new KeyValuePair<string, object?>("endpoint", path));
-            throw TranslateTransportError(ex, path);
+            throw TranslateTransportError(ex, path, options);
         }
         catch (OperationCanceledException) when (
             timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
         {
             OllamaMetrics.RequestsFailed.Add(1, new KeyValuePair<string, object?>("endpoint", path));
             throw new OllamaTimeoutException(
-                $"The Ollama request to '{path}' timed out after {CurrentOptions.Timeout}.",
+                $"The Ollama request to '{path}' timed out after {options.Timeout}.",
                 new TimeoutException())
             { Endpoint = path };
         }
@@ -248,10 +256,12 @@ internal sealed class OllamaHttpClient
     {
         ArgumentNullException.ThrowIfNull(responseTypeInfo);
 
+        OllamaClientOptions options = CurrentOptions;
+
         using Activity? activity = StartActivity(method, path, streaming: true);
         OllamaMetrics.RequestsTotal.Add(1, new KeyValuePair<string, object?>("endpoint", path));
 
-        using HttpRequestMessage request = CreateRequest(method, path, body, requestTypeInfo, isStreaming: true);
+        using HttpRequestMessage request = CreateRequest(method, path, body, requestTypeInfo, isStreaming: true, options);
 
         HttpResponseMessage response;
         try
@@ -265,7 +275,7 @@ internal sealed class OllamaHttpClient
         {
             OllamaLog.ConnectionError(_logger, ex, path);
             OllamaMetrics.RequestsFailed.Add(1, new KeyValuePair<string, object?>("endpoint", path));
-            throw TranslateTransportError(ex, path);
+            throw TranslateTransportError(ex, path, options);
         }
 
         activity?.SetTag("ollama.status_code", (int)response.StatusCode);
@@ -301,9 +311,11 @@ internal sealed class OllamaHttpClient
     /// <summary>Sends an HTTP HEAD request and returns whether the response was a success (2xx).</summary>
     public async Task<bool> HeadAsync(string path, CancellationToken cancellationToken)
     {
-        using HttpRequestMessage request = CreateRequest<object>(HttpMethod.Head, path, body: null, requestTypeInfo: null, isStreaming: false);
+        OllamaClientOptions options = CurrentOptions;
+
+        using HttpRequestMessage request = CreateRequest<object>(HttpMethod.Head, path, body: null, requestTypeInfo: null, isStreaming: false, options);
         using CancellationTokenSource timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeoutCts.CancelAfter(CurrentOptions.Timeout);
+        timeoutCts.CancelAfter(options.Timeout);
 
         try
         {
@@ -315,13 +327,13 @@ internal sealed class OllamaHttpClient
         }
         catch (Exception ex) when (ex is HttpRequestException or SocketException)
         {
-            throw TranslateTransportError(ex, path);
+            throw TranslateTransportError(ex, path, options);
         }
         catch (OperationCanceledException) when (
             timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
         {
             throw new OllamaTimeoutException(
-                $"The Ollama HEAD request to '{path}' timed out after {CurrentOptions.Timeout}.",
+                $"The Ollama HEAD request to '{path}' timed out after {options.Timeout}.",
                 new TimeoutException())
             { Endpoint = path };
         }
@@ -336,12 +348,14 @@ internal sealed class OllamaHttpClient
     {
         ArgumentNullException.ThrowIfNull(content);
 
-        using HttpRequestMessage request = CreateRequestCore(method, path, isStreaming: false);
+        OllamaClientOptions options = CurrentOptions;
+
+        using HttpRequestMessage request = CreateRequestCore(method, path, isStreaming: false, options);
         request.Content = new StreamContent(content);
         request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
 
         using CancellationTokenSource timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeoutCts.CancelAfter(CurrentOptions.Timeout);
+        timeoutCts.CancelAfter(options.Timeout);
 
         HttpResponseMessage response;
         try
@@ -351,13 +365,13 @@ internal sealed class OllamaHttpClient
         }
         catch (Exception ex) when (ex is HttpRequestException or SocketException)
         {
-            throw TranslateTransportError(ex, path);
+            throw TranslateTransportError(ex, path, options);
         }
         catch (OperationCanceledException) when (
             timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
         {
             throw new OllamaTimeoutException(
-                $"The Ollama request to '{path}' timed out after {CurrentOptions.Timeout}.",
+                $"The Ollama request to '{path}' timed out after {options.Timeout}.",
                 new TimeoutException())
             { Endpoint = path };
         }
@@ -377,10 +391,11 @@ internal sealed class OllamaHttpClient
         string path,
         TRequest? body,
         JsonTypeInfo<TRequest>? requestTypeInfo,
-        bool isStreaming)
+        bool isStreaming,
+        OllamaClientOptions options)
         where TRequest : class
     {
-        HttpRequestMessage request = CreateRequestCore(method, path, isStreaming);
+        HttpRequestMessage request = CreateRequestCore(method, path, isStreaming, options);
 
         if (body is not null && requestTypeInfo is not null)
         {
@@ -392,14 +407,8 @@ internal sealed class OllamaHttpClient
         return request;
     }
 
-    private HttpRequestMessage CreateRequestCore(HttpMethod method, string path, bool isStreaming)
+    private static HttpRequestMessage CreateRequestCore(HttpMethod method, string path, bool isStreaming, OllamaClientOptions options)
     {
-        // Snapshot the live options once per request so that UserAgent and the
-        // Authorization header observed by a single request remain consistent,
-        // even if another thread rotates the secret mid-call. Subsequent requests
-        // pick up the new values automatically via IOptionsMonitor.
-        OllamaClientOptions options = CurrentOptions;
-
         HttpRequestMessage request = new(method, path);
 
         request.Headers.UserAgent.ParseAdd($"{options.UserAgent}/{LibraryVersion}");
@@ -444,8 +453,17 @@ internal sealed class OllamaHttpClient
     /// guard also unwraps <see cref="HttpRequestException"/> → <see cref="SocketException"/>
     /// and handles raw <see cref="SocketException"/> (e.g. pre-request DNS lookups).
     /// </summary>
-    private OllamaException TranslateTransportError(Exception ex, string path)
+    private OllamaException TranslateTransportError(Exception ex, string path, OllamaClientOptions options)
     {
+        // Also inspect OllamaConfigurationException thrown from inside our own
+        // ConnectCallback (DisallowPrivateNetworks) — those are already typed
+        // correctly; when wrapped in HttpRequestException we unwrap them so
+        // callers see the direct cause rather than a generic connection error.
+        if (ex is HttpRequestException { InnerException: OllamaConfigurationException inner })
+        {
+            return inner;
+        }
+
         SocketException? socketEx = ex switch
         {
             SocketException s => s,
@@ -453,10 +471,12 @@ internal sealed class OllamaHttpClient
             _ => null,
         };
 
+        Uri? baseAddress = _httpClient.BaseAddress ?? options.BaseAddress;
+
         if (IsDnsResolutionFailure(socketEx))
         {
             return new OllamaConfigurationException(
-                $"DNS resolution failed for Ollama BaseAddress '{BaseAddress}': {socketEx!.Message}. " +
+                $"DNS resolution failed for Ollama BaseAddress '{baseAddress}': {socketEx!.Message}. " +
                 "Verify OllamaClientOptions.BaseAddress points at a reachable host.",
                 ex)
             {
@@ -465,7 +485,7 @@ internal sealed class OllamaHttpClient
         }
 
         return new OllamaConnectionException(
-            $"Could not connect to Ollama at '{BaseAddress}'. Is the Ollama server running? ({ex.Message})",
+            $"Could not connect to Ollama at '{baseAddress}'. Is the Ollama server running? ({ex.Message})",
             ex)
         {
             Endpoint = path,
