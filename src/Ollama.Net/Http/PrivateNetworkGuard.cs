@@ -71,7 +71,9 @@ internal static class PrivateNetworkGuard
         if (a == 127) return allowLoopback;
         // 169.254.0.0/16 — link-local
         if (a == 169 && b == 254) return false;
-        // 172.16.0.0/12 — RFC1918
+        // 172.16.0.0/12 — RFC1918. The /12 prefix means the upper nibble of the
+        // second octet is fixed at 0001, i.e. b ∈ [16, 31] (0x10..0x1F), which is
+        // equivalent to `(b & 0xF0) == 0x10` (== 16).
         if (a == 172 && (b & 0xF0) == 16) return false;
         // 192.0.0.0/24 — IETF protocol assignments
         if (a == 192 && b == 0 && bytes[2] == 0) return false;
@@ -79,13 +81,14 @@ internal static class PrivateNetworkGuard
         if (a == 192 && b == 0 && bytes[2] == 2) return false;
         // 192.168.0.0/16 — RFC1918
         if (a == 192 && b == 168) return false;
-        // 198.18.0.0/15 — benchmark
+        // 198.18.0.0/15 — benchmark (b ∈ {18, 19})
         if (a == 198 && (b & 0xFE) == 18) return false;
         // 198.51.100.0/24 — TEST-NET-2
         if (a == 198 && b == 51 && bytes[2] == 100) return false;
         // 203.0.113.0/24 — TEST-NET-3
         if (a == 203 && b == 0 && bytes[2] == 113) return false;
-        // 100.64.0.0/10 — CGNAT
+        // 100.64.0.0/10 — CGNAT. /10 fixes the top two bits of the second octet at
+        // 01, i.e. b ∈ [64, 127] (0x40..0x7F), equivalent to `(b & 0xC0) == 0x40`.
         if (a == 100 && (b & 0xC0) == 64) return false;
         // 224.0.0.0/4 — multicast / 240.0.0.0/4 — reserved / 255.255.255.255
         if (a >= 224) return false;
@@ -110,14 +113,10 @@ internal static class PrivateNetworkGuard
         // Unique local addresses: fc00::/7
         if ((bytes[0] & 0xFE) == 0xFC) return false;
         // Unspecified ::
-        bool allZero = true;
-        for (int i = 0; i < bytes.Length; i++) { if (bytes[i] != 0) { allZero = false; break; } }
-        if (allZero) return false;
-        // Discard prefix 100::/64
-        if (bytes[0] == 0x01 && bytes[1] == 0x00 && bytes[2] == 0 && bytes[3] == 0 && bytes[4] == 0 && bytes[5] == 0 && bytes[6] == 0 && bytes[7] == 0)
-        {
-            return false;
-        }
+        if (bytes.IndexOfAnyExcept((byte)0) < 0) return false;
+        // Discard prefix 100::/64 — first 8 bytes = 01 00 00 00 00 00 00 00
+        Span<byte> discardPrefix = stackalloc byte[8] { 0x01, 0, 0, 0, 0, 0, 0, 0 };
+        if (bytes[..8].SequenceEqual(discardPrefix)) return false;
         // Documentation 2001:db8::/32
         if (bytes[0] == 0x20 && bytes[1] == 0x01 && bytes[2] == 0x0D && bytes[3] == 0xB8) return false;
 
