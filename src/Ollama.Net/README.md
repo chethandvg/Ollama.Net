@@ -107,6 +107,52 @@ var models = await client.Models.ListModelsAsync();
 | `AuthorizationHeader` | `null` | Raw `Authorization` header; takes precedence over `ApiKey` |
 | `ApiKey` | `null` | Shortcut for `Authorization: Bearer {ApiKey}` — use for Ollama Cloud |
 | `AllowInsecureHttp` | `false` | Allow HTTP to non-loopback |
+| `DisallowPrivateNetworks` | `false` | Reject connections whose DNS-resolved IP falls in RFC1918 / link-local / CGNAT / unique-local / multicast ranges (evaluated per hop, incl. redirects). SSRF hardening beyond what `AllowInsecureHttp` covers. |
+
+### Secret rotation
+
+`ApiKey` and `AuthorizationHeader` are read through `IOptionsMonitor<OllamaClientOptions>`
+on every outbound request, so rotating them via `IOptionsMonitor`, `PostConfigure`, or
+a reloaded configuration source is picked up immediately — no need to rebuild the DI
+container or recreate the `IOllamaClient`.
+
+### HttpClient customisation (SSRF `ConnectCallback`, proxies, etc.)
+
+If you need full control over the transport — for example to install a custom
+`SocketsHttpHandler.ConnectCallback` that enforces per-hop SSRF invariants, or to add
+an auth-refreshing `DelegatingHandler` — use `ConfigureOllamaHttpClient(...)` to get
+the underlying `IHttpClientBuilder`:
+
+```csharp
+services.AddOllamaClient(o => { ... });
+
+services.ConfigureOllamaHttpClient()
+    .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+    {
+        ConnectCallback = MyAllowListedConnect,
+    });
+```
+
+The same builder is returned for named clients:
+`services.ConfigureOllamaHttpClient("analytics")`.
+
+### Observability &amp; the `Authorization` header
+
+This package never attaches the request `Authorization` header (or the raw `ApiKey`)
+to any ActivitySource or Meter tag it emits. If you enable the stock
+`AddHttpClientInstrumentation()` from `OpenTelemetry.Instrumentation.Http` over the
+same `HttpClient`, the default configuration also omits request headers; if you
+have opted into header capture via `enrichWithHttpRequestMessage` make sure to
+redact/strip `Authorization` in your enricher.
+
+### Token counting (not provided)
+
+Ollama's REST API has no token-counting endpoint — the only official token counts
+are `prompt_eval_count` / `eval_count` returned on generate/chat responses. This
+package deliberately ships no client-side tokenizer: per-family tokenizers would
+pull a large data dependency and break the current AOT/trim story. If you need a
+cheap estimator, call `GenerateAsync` with your prompt and `Options.NumPredict = 0`
+and read `prompt_eval_count` from the response.
 
 ### From `appsettings.json`
 

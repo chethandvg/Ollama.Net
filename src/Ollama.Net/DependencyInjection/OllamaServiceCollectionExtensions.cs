@@ -1,4 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
+using System.Net.Http;
 using Ollama.Net.Abstractions;
 using Ollama.Net.Clients;
 using Ollama.Net.Configuration;
@@ -48,6 +49,37 @@ public static class OllamaServiceCollectionExtensions
     /// See <see href="https://ollama.com/cloud"/> for model catalogue and pricing.
     /// </summary>
     public static readonly Uri OllamaCloudBaseAddress = new("https://ollama.com/");
+
+    /// <summary>
+    /// Returns the <see cref="IHttpClientBuilder"/> for the underlying named
+    /// <see cref="HttpClient"/> registered by <see cref="AddOllamaClient(IServiceCollection, Action{OllamaClientOptions}?)"/>
+    /// (or one of its overloads). Use this to attach additional delegating handlers,
+    /// override the primary handler (e.g., to install a custom
+    /// <see cref="System.Net.Http.SocketsHttpHandler.ConnectCallback"/> enforcing
+    /// per-hop SSRF invariants), or adjust the handler lifetime.
+    /// </summary>
+    /// <param name="services">The service collection.</param>
+    /// <param name="name">
+    /// The same name passed to <c>AddOllamaClient(name, …)</c>, or <see langword="null"/>
+    /// for the default client.
+    /// </param>
+    /// <remarks>
+    /// Must be called <em>after</em> <c>AddOllamaClient(...)</c> so the named client
+    /// is already registered. Calls are idempotent — <see cref="IHttpClientBuilder"/>
+    /// returned here targets the same named client and composes with the handlers
+    /// already wired by the package.
+    /// </remarks>
+    public static IHttpClientBuilder ConfigureOllamaHttpClient(
+        this IServiceCollection services,
+        string? name = null)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        string httpClientName = name ?? DefaultClientName;
+        // AddHttpClient is idempotent for an existing named client — returns a builder
+        // targeting the same registration, so consumers can layer ConfigurePrimaryHttpMessageHandler,
+        // AddHttpMessageHandler, etc. on top of the package defaults.
+        return services.AddHttpClient(httpClientName);
+    }
 
     /// <summary>
     /// Registers the default <see cref="IOllamaClient"/>.
@@ -188,7 +220,7 @@ public static class OllamaServiceCollectionExtensions
 
         // Register a named HttpClient backed by IHttpClientFactory. The name is used to
         // resolve the correct base address per-client and is shared by the resilience handler.
-        services
+        IHttpClientBuilder builder = services
             .AddHttpClient(httpClientName, (sp, client) =>
             {
                 OllamaClientOptions opts = sp
@@ -196,6 +228,15 @@ public static class OllamaServiceCollectionExtensions
                     .Get(optionsName);
                 client.BaseAddress = opts.BaseAddress;
             })
+            .ConfigurePrimaryHttpMessageHandler(sp =>
+            {
+                OllamaClientOptions opts = sp
+                    .GetRequiredService<IOptionsMonitor<OllamaClientOptions>>()
+                    .Get(optionsName);
+                return BuildPrimaryHandler(opts);
+            });
+
+        builder
             .AddStandardResilienceHandler()
             .Configure((resilience, sp) =>
             {
@@ -273,16 +314,60 @@ public static class OllamaServiceCollectionExtensions
     private static OllamaClient BuildClient(IServiceProvider sp, string httpClientName, string optionsName)
     {
         HttpClient http = sp.GetRequiredService<IHttpClientFactory>().CreateClient(httpClientName);
-        OllamaClientOptions options = sp.GetRequiredService<IOptionsMonitor<OllamaClientOptions>>().Get(optionsName);
+        IOptionsMonitor<OllamaClientOptions> optionsMonitor =
+            sp.GetRequiredService<IOptionsMonitor<OllamaClientOptions>>();
         ILogger<OllamaHttpClient> logger = sp.GetRequiredService<ILogger<OllamaHttpClient>>();
 
-        var ollamaHttp = new OllamaHttpClient(http, Options.Create(options), logger);
+        var ollamaHttp = new OllamaHttpClient(http, optionsMonitor, optionsName, logger);
 
         return new OllamaClient(
             new OllamaGenerationClient(ollamaHttp),
             new OllamaEmbeddingsClient(ollamaHttp),
             new OllamaModelsClient(ollamaHttp),
             new OllamaSystemClient(ollamaHttp));
+    }
+
+    /// <summary>
+    /// Builds the primary <see cref="HttpMessageHandler"/> for the Ollama client.
+    /// When <see cref="OllamaClientOptions.DisallowPrivateNetworks"/> is set we wire up a
+    /// <see cref="SocketsHttpHandler.ConnectCallback"/> that re-validates every
+    /// DNS-resolved IP (including each redirect hop) — the post-DNS half of SSRF
+    /// defense that <see cref="OllamaClientOptions.AllowInsecureHttp"/> cannot cover
+    /// because it only inspects the configured URL.
+    /// </summary>
+    [SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope",
+        Justification = "Handler ownership is transferred to the HttpClient created by IHttpClientFactory.")]
+    private static SocketsHttpHandler BuildPrimaryHandler(OllamaClientOptions options)
+    {
+        SocketsHttpHandler handler = new();
+
+        if (options.DisallowPrivateNetworks)
+        {
+            // Allow loopback only when the configured base address is itself a loopback
+            // host — this keeps "http://localhost:11434" working in dev while still
+            // rejecting a public hostname that resolves to 127.0.0.1.
+            bool allowLoopback = IsLoopbackBaseAddress(options.BaseAddress);
+            handler.ConnectCallback = PrivateNetworkGuard.BuildConnectCallback(allowLoopback);
+        }
+
+        return handler;
+    }
+
+    private static bool IsLoopbackBaseAddress(Uri? baseAddress)
+    {
+        if (baseAddress is null || !baseAddress.IsAbsoluteUri)
+        {
+            return false;
+        }
+
+        string host = baseAddress.Host;
+        if (host.Equals("localhost", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return System.Net.IPAddress.TryParse(host, out System.Net.IPAddress? ip)
+               && System.Net.IPAddress.IsLoopback(ip);
     }
 
     [SuppressMessage("Design", "CA1812:Avoid uninstantiated internal classes",

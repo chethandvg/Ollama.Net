@@ -7,6 +7,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`OllamaClientOptions.DisallowPrivateNetworks`** — new post-DNS SSRF guard. When
+  enabled, the client installs a `SocketsHttpHandler.ConnectCallback` that rejects
+  every resolved IP falling in RFC1918 / link-local / unique-local / CGNAT /
+  documentation / multicast / reserved ranges (and, unless the configured base
+  address is itself a loopback host, loopback too). The check runs on every DNS
+  resolution — including redirect hops — closing the gap left by `AllowInsecureHttp`,
+  which only validates the configured URL.
+- **`OllamaServiceCollectionExtensions.ConfigureOllamaHttpClient(name?)`** —
+  returns the underlying `IHttpClientBuilder` for the package-registered named
+  client, so consumers can layer `ConfigurePrimaryHttpMessageHandler(...)`
+  (e.g. to install their own `ConnectCallback`) or
+  `AddHttpMessageHandler(...)` on top of the package defaults.
+- **`OllamaFormat.TryFromSchema`** — non-throwing counterparts to `FromSchema` for
+  `JsonElement`, `JsonDocument?`, and `string?` inputs. Invalid JSON, wrong
+  `JsonValueKind`, `null`, and empty strings all return `false` instead of
+  throwing.
+
+### Changed
+
+- **`ApiKey` / `AuthorizationHeader` are now read per-request** via
+  `IOptionsMonitor<OllamaClientOptions>` rather than captured as a snapshot at
+  registration. Secret rotation (via `PostConfigure`, `IOptionsMonitorCache`, or
+  a reloaded configuration source) is picked up on the next outbound request —
+  no need to rebuild the DI container.
+- **DNS-resolution failures now surface as `OllamaConfigurationException`.** A
+  `SocketException` (whether raw or wrapped in `HttpRequestException`) with a
+  DNS-class `SocketErrorCode` (`HostNotFound`, `NoData`, `TryAgain`, `NoRecovery`)
+  is mapped to `OllamaConfigurationException` pointing at `BaseAddress`; other
+  transport failures continue to surface as `OllamaConnectionException`.
+
+### Documentation
+
+- **`OllamaMessage.ToolName`** — doc clarified that this maps to Ollama's native
+  `tool_name` field and identifies the tool <em>definition</em> (e.g.
+  `"get_weather"`), not a per-invocation ID. Anthropic `tool_use_id` / OpenAI
+  `tool_call_id` values should live in application-side conversation state.
+- **`IOllamaGenerationClient.GenerateStreamAsync` / `ChatStreamAsync`** — doc
+  clarified that the returned enumerable is fully lazy: all exceptions surface
+  from `MoveNextAsync`, so a single `try` around the `await foreach` suffices.
+- **README** — added sections on secret rotation, `HttpClient` customisation,
+  the `Authorization`-header / OTel redaction posture, and the deliberate lack
+  of a client-side token-counting endpoint.
+
 ## [2.0.0] — 2026-04-22
 
 > **Breaking release.** `GenerateRequest.Format` / `ChatRequest.Format` change
