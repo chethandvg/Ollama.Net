@@ -54,4 +54,30 @@ public sealed class OllamaClientOptions
     /// By default, only HTTPS or HTTP to loopback/localhost is allowed.
     /// </summary>
     public bool AllowInsecureHttp { get; set; }
+
+    /// <summary>
+    /// When <see langword="true"/>, the client rejects connections whose resolved IP falls
+    /// inside a private, link-local, loopback (post-DNS), unique-local, CGNAT, multicast,
+    /// or otherwise non-globally-routable range. This is evaluated <em>after</em> DNS
+    /// resolution and <em>per redirect hop</em>, so a hostile DNS or <c>/etc/hosts</c>
+    /// entry pointing <c>example.com</c> at <c>10.0.0.1</c> still gets rejected —
+    /// closing the SSRF gap left by <see cref="AllowInsecureHttp"/>, which operates
+    /// on the configured URL only.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Defaults to <see langword="false"/> to preserve back-compat; opt-in for services
+    /// that must never reach internal infrastructure (e.g., public-facing AI gateways).
+    /// The check is enforced by a <see cref="System.Net.Http.SocketsHttpHandler.ConnectCallback"/>
+    /// wired on the primary handler; loopback targets (<c>127.0.0.0/8</c>, <c>::1</c>)
+    /// are permitted <em>only</em> when the configured <see cref="BaseAddress"/> host is
+    /// itself a loopback name.
+    /// </para>
+    /// <para>
+    /// If you need more control, take ownership of the primary handler via
+    /// <c>services.ConfigureOllamaHttpClient(name).ConfigurePrimaryHttpMessageHandler(...)</c>
+    /// and install your own <c>ConnectCallback</c>.
+    /// </para>
+    /// </remarks>
+    public bool DisallowPrivateNetworks { get; set; }
 }

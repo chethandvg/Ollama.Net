@@ -102,6 +102,72 @@ public readonly struct OllamaFormat : IEquatable<OllamaFormat>
         return FromSchema(doc.RootElement);
     }
 
+    /// <summary>
+    /// Non-throwing counterpart to <see cref="FromSchema(JsonElement)"/>. Returns
+    /// <see langword="true"/> on success and populates <paramref name="format"/>; returns
+    /// <see langword="false"/> (with <paramref name="format"/> set to <see langword="default"/>)
+    /// when the element is not a JSON object.
+    /// </summary>
+    /// <param name="schema">The candidate JSON-schema element.</param>
+    /// <param name="format">When the method returns <see langword="true"/>, the parsed format.</param>
+    public static bool TryFromSchema(JsonElement schema, out OllamaFormat format)
+    {
+        if (schema.ValueKind != JsonValueKind.Object)
+        {
+            format = default;
+            return false;
+        }
+
+        format = new OllamaFormat(mode: null, schema.Clone(), hasSchema: true);
+        return true;
+    }
+
+    /// <summary>
+    /// Non-throwing counterpart to <see cref="FromSchema(JsonDocument)"/>. Returns
+    /// <see langword="false"/> when <paramref name="schema"/> is <see langword="null"/>
+    /// or its root element is not a JSON object.
+    /// </summary>
+    /// <param name="schema">The candidate JSON document.</param>
+    /// <param name="format">When the method returns <see langword="true"/>, the parsed format.</param>
+    public static bool TryFromSchema(JsonDocument? schema, out OllamaFormat format)
+    {
+        if (schema is null)
+        {
+            format = default;
+            return false;
+        }
+
+        return TryFromSchema(schema.RootElement, out format);
+    }
+
+    /// <summary>
+    /// Non-throwing counterpart to <see cref="FromSchema(string)"/>. Returns
+    /// <see langword="false"/> when <paramref name="schemaJson"/> is
+    /// <see langword="null"/>/empty, is not valid JSON, or does not parse to a JSON
+    /// object; never throws <see cref="JsonException"/>.
+    /// </summary>
+    /// <param name="schemaJson">The candidate JSON-schema string.</param>
+    /// <param name="format">When the method returns <see langword="true"/>, the parsed format.</param>
+    public static bool TryFromSchema(string? schemaJson, out OllamaFormat format)
+    {
+        if (string.IsNullOrEmpty(schemaJson))
+        {
+            format = default;
+            return false;
+        }
+
+        try
+        {
+            using JsonDocument doc = JsonDocument.Parse(schemaJson);
+            return TryFromSchema(doc.RootElement, out format);
+        }
+        catch (JsonException)
+        {
+            format = default;
+            return false;
+        }
+    }
+
     /// <summary><see langword="true"/> when this value holds a mode string (e.g. <c>"json"</c>).</summary>
     public bool IsMode => !_hasSchema;
 

@@ -63,6 +63,55 @@ public sealed class OllamaFormatTests
     }
 
     [Fact]
+    public void TryFromSchema_JsonElement_ReturnsTrue_ForObject()
+    {
+        using JsonDocument doc = JsonDocument.Parse("""{"type":"object"}""");
+        bool ok = OllamaFormat.TryFromSchema(doc.RootElement, out OllamaFormat f);
+        ok.Should().BeTrue();
+        f.IsSchema.Should().BeTrue();
+        f.AsSchema().GetProperty("type").GetString().Should().Be("object");
+    }
+
+    [Fact]
+    public void TryFromSchema_JsonElement_ReturnsFalse_ForNonObject()
+    {
+        using JsonDocument doc = JsonDocument.Parse("[1,2,3]");
+        bool ok = OllamaFormat.TryFromSchema(doc.RootElement, out OllamaFormat f);
+        ok.Should().BeFalse();
+        f.Should().Be(default(OllamaFormat));
+    }
+
+    [Fact]
+    public void TryFromSchema_JsonDocument_ReturnsFalse_ForNull()
+    {
+        bool ok = OllamaFormat.TryFromSchema((JsonDocument?)null, out OllamaFormat f);
+        ok.Should().BeFalse();
+        f.Should().Be(default(OllamaFormat));
+    }
+
+    [Fact]
+    public void TryFromSchema_String_ReturnsTrue_ForValidSchema()
+    {
+        bool ok = OllamaFormat.TryFromSchema("""{"type":"object"}""", out OllamaFormat f);
+        ok.Should().BeTrue();
+        f.IsSchema.Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("not json")]
+    [InlineData("[1,2,3]")]
+    [InlineData("\"string\"")]
+    [InlineData("42")]
+    public void TryFromSchema_String_ReturnsFalse_WithoutThrowing(string? input)
+    {
+        bool ok = OllamaFormat.TryFromSchema(input, out OllamaFormat f);
+        ok.Should().BeFalse();
+        f.Should().Be(default(OllamaFormat));
+    }
+
+    [Fact]
     public void ImplicitConversion_FromString_Works()
     {
         OllamaFormat f = "json";
