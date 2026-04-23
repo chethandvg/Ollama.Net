@@ -10,7 +10,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [2.1.0] — 2026-04-23
 
 ### Added
-…contents previously under [Unreleased]…
 
 - **`OllamaClientOptions.DisallowPrivateNetworks`** — new post-DNS SSRF guard. When
   enabled, the client installs a `SocketsHttpHandler.ConnectCallback` that rejects
